@@ -1,1 +1,2 @@
 # ReinigungsAI prototype currently uses only the Python standard library.
+streamlit>=1.40, &lt;2.0
