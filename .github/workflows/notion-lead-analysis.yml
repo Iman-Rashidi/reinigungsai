@@ -1,0 +1,41 @@
+name: Notion lead analysis (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify required Notion configuration
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATA_SOURCE_ID: ${{ vars.NOTION_DATA_SOURCE_ID }}
+          NOTION_VERSION: '2026-03-11'
+        run: |
+          if [ -z "$NOTION_TOKEN" ]; then
+            echo "::error::NOTION_TOKEN secret is missing."
+            exit 1
+          fi
+          if [ -z "$NOTION_DATA_SOURCE_ID" ]; then
+            echo "::error::NOTION_DATA_SOURCE_ID repository variable is missing."
+            exit 1
+          fi
+
+      - name: Run read-only lead analysis
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATA_SOURCE_ID: ${{ vars.NOTION_DATA_SOURCE_ID }}
+          NOTION_VERSION: '2026-03-11'
+        run: python -m src.notion_lead_analyzer
