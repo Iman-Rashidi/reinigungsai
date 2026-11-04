@@ -69,7 +69,34 @@ class TEDSearchTests(unittest.TestCase):
         self.assertEqual(notice["publication_number"], "12345-2026")
         self.assertEqual(notice["buyer"], "Stadt Beispiel")
         self.assertEqual(notice["url"], "")
-        self.assertIn("müssen", notice["evidence_note"])
+        self.assertEqual(notice["email"], "")
+        self.assertEqual(notice["phone"], "")
+        self.assertEqual(notice["completeness"]["present"], 1)
+        self.assertIn("Originalunterlagen", notice["evidence_note"])
+
+    def test_extracts_public_buyer_contact_and_tender_requirements(self):
+        notice = _normalise_notice({
+            "notice-title": {"deu": "Unterhaltsreinigung"},
+            "buyer-name": {"deu": "Stadt Viersen"},
+            "buyer-contact-point": {"deu": "Vergabestelle"},
+            "buyer-person": {"deu": "Max Beispiel"},
+            "buyer-email": "vergabe@example.de",
+            "organisation-tel-buyer": "+49 2162 12345",
+            "description-proc": {"deu": "Reinigung von Schulgebäuden"},
+            "selection-criterion-description-lot": {"deu": "Referenzen erforderlich"},
+            "award-criterion-description-lot": {"deu": "Preis und Qualität"},
+            "estimated-value-proc": "100000",
+            "estimated-value-cur-proc": "EUR",
+            "document-url-lot": "https://example.de/unterlagen",
+            "submission-url-lot": "https://example.de/abgabe",
+            "deadline": "2026-12-01",
+        })
+        self.assertEqual(notice["contact_person"], "Max Beispiel")
+        self.assertEqual(notice["email"], "vergabe@example.de")
+        self.assertEqual(notice["phone"], "+49 2162 12345")
+        self.assertEqual(notice["selection_criteria"], "Referenzen erforderlich")
+        self.assertEqual(notice["award_criteria"], "Preis und Qualität")
+        self.assertEqual(notice["completeness"]["present"], 9)
 
 
 if __name__ == "__main__":
