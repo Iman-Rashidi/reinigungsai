@@ -41,8 +41,8 @@ st.info(
 # Live, read-only search of official TED procurement notices.
 st.markdown("## 🔎 Live-Suche nach öffentlichen Ausschreibungen")
 st.caption(
-    "Quelle: TED – Tenders Electronic Daily · nur Deutschland · "
-    "standardmäßig Nordrhein-Westfalen (NUTS-Code DEA) · nur lesend · "
+    "Quelle: TED – Tenders Electronic Daily · ausschließlich Deutschland, "
+    "nur Nordrhein-Westfalen (NRW / NUTS-Code DEA) · nur lesend · "
     "keine automatische Übernahme nach Notion."
 )
 with st.form("ted_search_form"):
@@ -51,22 +51,16 @@ with st.form("ted_search_form"):
         value="Gebäudereinigung",
         help="Beispiel: Gebäudereinigung, Unterhaltsreinigung oder Glasreinigung",
     )
-    ted_region_label = st.selectbox(
-        "Suchgebiet",
-        ["Nordrhein-Westfalen (NRW)", "Ganz Deutschland"],
-        index=0,
-    )
-    ted_region = "NRW" if ted_region_label.startswith("Nordrhein-Westfalen") else "DE"
+    st.text_input("Suchgebiet", value="Nordrhein-Westfalen (NRW), Deutschland", disabled=True)
     ted_limit = st.selectbox("Maximale Treffer", [10, 20, 30, 50], index=2)
     ted_submitted = st.form_submit_button("Jetzt live auf TED suchen")
 
 if ted_submitted:
     try:
-        with st.spinner("Suche aktive TED-Bekanntmachungen in Deutschland ..."):
+        with st.spinner("Suche aktive TED-Bekanntmachungen in Nordrhein-Westfalen ..."):
             ted_result = search_active_notices(
                 ted_keyword,
                 limit=ted_limit,
-                region=ted_region,
             )
         st.session_state["ted_result"] = ted_result
         st.success(
@@ -78,13 +72,8 @@ if ted_submitted:
 
 ted_result = st.session_state.get("ted_result")
 if ted_result:
-    area_label = (
-        "Nordrhein-Westfalen"
-        if ted_result.get("region") == "NRW"
-        else "Deutschland"
-    )
     st.caption(
-        f"Suchgebiet: {area_label} · Abfrage: {ted_result['query']} · "
+        f"Suchgebiet: Nordrhein-Westfalen, Deutschland · Abfrage: {ted_result['query']} · "
         f"Bereich: ACTIVE · Zurückgegeben: {ted_result['returned']} · "
         f"Gesamt laut API: {ted_result['total']}"
     )
