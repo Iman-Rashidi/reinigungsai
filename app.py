@@ -12,6 +12,7 @@ import os
 import re
 from collections import Counter
 
+import pandas as pd
 import streamlit as st
 
 from notion_reader import DEFAULT_DATA_SOURCE_ID, NotionAPIError, query_data_source
@@ -156,6 +157,11 @@ def count_values(rows: list[dict], field: str) -> dict[str, int]:
     return dict(Counter(values).most_common(12))
 
 
+def chart_frame(counts: dict[str, int]) -> pd.DataFrame:
+    """Build a labelled frame for Streamlit charts, including empty states."""
+    return pd.DataFrame({"Kategorie": list(counts.keys()), "Anzahl": list(counts.values())})
+
+
 def render_directory(rows: list[dict], columns: list[str], filename: str, label: str) -> None:
     st.dataframe(rows, use_container_width=True, hide_index=True)
     st.download_button(
@@ -251,7 +257,7 @@ with overview:
         st.markdown("#### Kunden nach Branche")
         industry_counts = count_values(customers, "Branche / Einrichtung")
         if industry_counts:
-            st.bar_chart(industry_counts, horizontal=True, height=330)
+            st.bar_chart(chart_frame(industry_counts), x="Kategorie", y="Anzahl", horizontal=True, height=330)
         else:
             st.info("Noch keine Kundendaten geladen oder für diese Filter gefunden.")
     with right:
@@ -262,7 +268,7 @@ with overview:
             "Ort": completeness(customer_rows, ("Stadt", "PLZ")),
             "Prüfdatum": completeness(customer_rows, ("Prüfdatum",)),
         }
-        st.bar_chart(coverage, horizontal=True, height=260)
+        st.bar_chart(chart_frame(coverage), x="Kategorie", y="Anzahl", horizontal=True, height=260)
         st.caption("Vollständigkeit der vorhandenen Felder, keine Aussage über sachliche Richtigkeit.")
     st.markdown("#### Zuletzt geladene Kunden")
     if customers:
@@ -322,14 +328,14 @@ with market:
         st.markdown("#### Kunden nach Stadt")
         city_counts = count_values(customers, "Stadt")
         if city_counts:
-            st.bar_chart(city_counts, horizontal=True, height=320)
+            st.bar_chart(chart_frame(city_counts), x="Kategorie", y="Anzahl", horizontal=True, height=320)
         else:
             st.info("Keine Kundendaten für die aktuelle Auswahl.")
     with m2:
         st.markdown("#### Anbieter nach Dienstleistung")
         service_counts = count_values(providers, "Dienstleistung")
         if service_counts:
-            st.bar_chart(service_counts, horizontal=True, height=320)
+            st.bar_chart(chart_frame(service_counts), x="Kategorie", y="Anzahl", horizontal=True, height=320)
         else:
             st.info("Noch keine Anbieterdaten geladen. Eine eigene Anbieter-Datenquelle muss verbunden werden.")
     st.markdown("#### Regionale Abdeckung")
@@ -362,7 +368,7 @@ with quality:
     st.markdown("#### Qualitätsstatus")
     status_counts = count_values(customer_rows + provider_rows, "Datenstatus")
     if status_counts:
-        st.bar_chart(status_counts, horizontal=True)
+        st.bar_chart(chart_frame(status_counts), x="Kategorie", y="Anzahl", horizontal=True)
     else:
         st.info("Noch keine Datenstatus-Angaben vorhanden.")
 
