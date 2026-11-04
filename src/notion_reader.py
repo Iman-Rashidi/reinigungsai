@@ -17,6 +17,16 @@ class NotionAPIError(RuntimeError):
     """Raised when the Notion API request fails."""
 
 
+def extract_title(page: dict) -> str:
+    """Return the first Notion title property's plain text."""
+    properties = page.get("properties", {})
+    for prop in properties.values():
+        title_items = prop.get("title") if isinstance(prop, dict) else None
+        if title_items is not None:
+            return "".join(item.get("plain_text", "") for item in title_items)
+    return ""
+
+
 def query_data_source(data_source_id: str, page_size: int = 100, max_pages: int = 10) -> list[dict]:
     """Read rows from the specified Notion data source, with bounded pagination."""
     token = os.environ.get("NOTION_TOKEN", "").strip()
