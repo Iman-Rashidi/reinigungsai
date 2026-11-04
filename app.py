@@ -199,7 +199,7 @@ with st.sidebar:
     if st.button("↻ Daten aus Notion laden", type="primary", use_container_width=True):
         token = os.environ.get("NOTION_TOKEN", "").strip()
         customer_id = (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip()
-        provider_id = os.environ.get("PROVIDER_DATA_SOURCE_ID", "").strip()
+        provider_id = (os.environ.get("PROVIDER_DATA_SOURCE_ID") or "collection://78e8e33b-4989-41d7-a4bf-da76ea11271d").strip()
         if not token:
             st.session_state["load_error"] = "NOTION_TOKEN fehlt. Bitte als geschütztes Streamlit Secret hinterlegen."
         else:
@@ -376,7 +376,7 @@ with sources:
     st.subheader("Datenquellen & Systemstatus")
     token_present = bool(os.environ.get("NOTION_TOKEN", "").strip())
     customer_id = (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip()
-    provider_id = os.environ.get("PROVIDER_DATA_SOURCE_ID", "").strip()
+    provider_id = (os.environ.get("PROVIDER_DATA_SOURCE_ID") or "collection://78e8e33b-4989-41d7-a4bf-da76ea11271d").strip()
     s1, s2, s3 = st.columns(3)
     s1.metric("Notion Token", "Verbunden" if token_present else "Fehlt")
     s2.metric("Kundenquelle", "Konfiguriert" if customer_id else "Fehlt")
