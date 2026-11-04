@@ -12,7 +12,7 @@ import os
 
 import streamlit as st
 
-from src.notion_reader import NotionAPIError, query_data_source
+from notion_reader import NotionAPIError, query_data_source
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
