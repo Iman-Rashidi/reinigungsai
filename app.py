@@ -82,14 +82,14 @@ if ted_result:
         overview_rows = []
         for notice in ted_result["notices"]:
             overview_rows.append({
-                "Ausschreibung": notice["title"],
-                "Vergabenummer": notice["publication_number"] or "Nicht angegeben",
-                "Stadt / Leistungsort": notice["location"] or "Nicht angegeben",
-                "Auftraggeber": notice["buyer"] or "Nicht veröffentlicht",
-                "Angebotsfrist": notice["deadline"] or "Nicht angegeben",
+                "Ausschreibung": notice.get("title", ""),
+                "Vergabenummer": notice.get("publication_number", "") or "Nicht angegeben",
+                "Stadt / Leistungsort": notice.get("location", "") or "Nicht angegeben",
+                "Auftraggeber": notice.get("buyer", "") or "Nicht veröffentlicht",
+                "Angebotsfrist": notice.get("deadline", "") or "Nicht angegeben",
                 "Auftragswert": (
                     f"{notice['estimated_value']} {notice['estimated_value_currency']}".strip()
-                    if notice["estimated_value"] else "Nicht veröffentlicht"
+                    if notice.get("estimated_value", "") else "Nicht veröffentlicht"
                 ),
                 "Informationsstand": (
                     f"{notice['completeness']['present']}/{notice['completeness']['total']} Felder"
@@ -111,8 +111,8 @@ if ted_result:
             "„Informationsstand“ misst Datenvollständigkeit, nicht Zuschlagschancen."
         )
         for notice in ted_result["notices"]:
-            heading = notice["title"]
-            if notice["publication_number"]:
+            heading = notice.get("title", "")
+            if notice.get("publication_number", ""):
                 heading += f" · {notice['publication_number']}"
             with st.expander(heading):
                 st.markdown("#### Auftraggeber und Kontakt")
@@ -122,7 +122,7 @@ if ted_result:
                 st.write(f"**E-Mail:** {notice['email'] or 'Nicht veröffentlicht'}")
                 st.write(f"**Telefon:** {notice['phone'] or 'Nicht veröffentlicht'}")
                 st.write(f"**Adresse:** {notice['buyer_postcode'] or ''} {notice['buyer_city'] or ''}".strip() or "Nicht veröffentlicht")
-                if notice["buyer_website"].startswith(("https://", "http://")):
+                if notice.get("buyer_website", "").startswith(("https://", "http://")):
                     st.markdown(f"[Website des Auftraggebers]({notice['buyer_website']})")
                 st.markdown("#### Leistungs- und Vergabedetails")
                 st.write(f"**Ort der Leistung:** {notice['location'] or 'Nicht angegeben'}")
@@ -139,20 +139,20 @@ if ted_result:
                 st.write(f"**Zuschlagskriterien:** {notice['award_criteria'] or 'Originalunterlagen prüfen'}")
                 st.write(f"**Gewichtung:** {notice['award_weights'] or 'Nicht angegeben'}")
                 st.markdown("#### Unterlagen und Angebotsabgabe")
-                if notice["documents_url"].startswith(("https://", "http://")):
+                if notice.get("documents_url", "").startswith(("https://", "http://")):
                     st.markdown(f"[Vergabeunterlagen öffnen]({notice['documents_url']})")
                 else:
                     st.write("**Vergabeunterlagen:** Link nicht vorhanden")
-                if notice["submission_url"].startswith(("https://", "http://")):
+                if notice.get("submission_url", "").startswith(("https://", "http://")):
                     st.markdown(f"[Einreichungsportal öffnen]({notice['submission_url']})")
                 else:
                     st.write("**Einreichungsportal:** Nicht angegeben")
-                completeness = notice["completeness"]
+                completeness = notice.get("completeness") or {"present": 0, "total": 1}
                 st.progress(completeness["present"] / completeness["total"])
                 st.caption(f"Informationsabdeckung: {completeness['present']} von {completeness['total']} Prüffeldern. Keine Erfolgswahrscheinlichkeit.")
-                if notice["url"].startswith("https://ted.europa.eu/"):
+                if notice.get("url", "").startswith("https://ted.europa.eu/"):
                     st.markdown(f"[Originalbekanntmachung bei TED öffnen]({notice['url']})")
-                st.warning(notice["evidence_note"])
+                st.warning(notice.get("evidence_note", ""))
     else:
         st.info(
             "Für dieses Suchgebiet wurden keine aktiven Bekanntmachungen "
