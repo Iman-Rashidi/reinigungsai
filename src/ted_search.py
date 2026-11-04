@@ -23,6 +23,28 @@ DEFAULT_FIELDS = [
     "place-of-performance-city-lot",
     "place-of-performance-city-part",
     "place-of-performance-subdiv-proc",
+    "buyer-contact-point",
+    "buyer-email",
+    "buyer-person",
+    "buyer-city",
+    "buyer-post-code",
+    "buyer-internet-address",
+    "organisation-tel-buyer",
+    "organisation-email-buyer",
+    "description-proc",
+    "selection-criterion-name-lot",
+    "selection-criterion-description-lot",
+    "exclusion-grounds-description",
+    "award-criterion-name-lot",
+    "award-criterion-description-lot",
+    "award-criterion-number-weight-lot",
+    "estimated-value-proc",
+    "estimated-value-cur-proc",
+    "document-url-lot",
+    "submission-url-lot",
+    "contract-duration-period-lot",
+    "main-classification-proc",
+    "procedure-type",
 ]
 
 
@@ -101,19 +123,60 @@ def _normalise_notice(item: dict) -> dict:
         if value and value not in location_parts:
             location_parts.append(value)
 
+    def first_text(*keys):
+        for key in keys:
+            text = _localized_text(item.get(key))
+            if text:
+                return text
+        return ""
+
+    details = {
+        "buyer": first_text("buyer-name", "buyerName"),
+        "contact_point": first_text("buyer-contact-point", "buyer-touchpoint-contact-point"),
+        "contact_person": first_text("buyer-person", "buyer-touchpoint-name"),
+        "email": first_text("buyer-email", "organisation-email-buyer", "buyer-touchpoint-email"),
+        "phone": first_text("organisation-tel-buyer"),
+        "buyer_city": first_text("buyer-city"),
+        "buyer_postcode": first_text("buyer-post-code"),
+        "buyer_website": first_text("buyer-internet-address"),
+        "description": first_text("description-proc"),
+        "selection_criteria": first_text("selection-criterion-name-lot", "selection-criterion-description-lot"),
+        "exclusion_criteria": first_text("exclusion-grounds-description", "exclusion-grounds"),
+        "award_criteria": first_text("award-criterion-name-lot", "award-criterion-description-lot"),
+        "award_weights": first_text("award-criterion-number-weight-lot"),
+        "estimated_value": first_text("estimated-value-proc"),
+        "estimated_value_currency": first_text("estimated-value-cur-proc"),
+        "documents_url": first_text("document-url-lot"),
+        "submission_url": first_text("submission-url-lot"),
+        "contract_duration": first_text("contract-duration-period-lot"),
+        "cpv": first_text("main-classification-proc"),
+        "procedure_type": first_text("procedure-type"),
+    }
+    completeness_fields = (
+        "buyer", "description", "email", "phone", "selection_criteria",
+        "exclusion_criteria", "award_criteria", "estimated_value",
+        "documents_url", "submission_url", "deadline",
+    )
+    present = sum(bool(details.get(key) or (key == "deadline" and _localized_text(item.get("deadline")))) for key in completeness_fields)
+
     return {
         "title": title,
         "publication_number": str(publication_number),
-        "buyer": _localized_text(item.get("buyer-name") or item.get("buyerName")),
+        **details,
         "publication_date": _localized_text(item.get("publication-date") or item.get("publicationDate")),
         "deadline": _localized_text(item.get("deadline")),
         "location": " · ".join(location_parts),
         "url": str(url),
+        "completeness": {
+            "present": present,
+            "total": len(completeness_fields),
+            "missing": [key for key in completeness_fields if not (details.get(key) or (key == "deadline" and _localized_text(item.get("deadline"))))],
+        },
         "source": "TED – Tenders Electronic Daily",
         "evidence_note": (
-            "Öffentliche Vergabebekanntmachung. Reinigungsbedarf, "
-            "externe Vergabe und Eignung müssen anhand der Bekanntmachung "
-            "und Vergabeunterlagen einzeln geprüft werden."
+            "Öffentliche Vergabebekanntmachung. Angaben werden nur angezeigt, "
+            "wenn sie in den TED-Daten enthalten sind. Eignung und vollständige "
+            "Teilnahmebedingungen sind anhand der Originalunterlagen zu prüfen."
         ),
     }
 
