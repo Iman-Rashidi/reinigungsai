@@ -1,7 +1,7 @@
 """Read-only search client for active German public procurement notices on TED.
 
-The default search is restricted to North Rhine-Westphalia (NUTS 1 code DEA).
-The optional Germany-wide mode uses the place-of-performance country filter.
+Search is strictly restricted to Germany and North Rhine-Westphalia
+(NUTS 1 code DEA). There is no Germany-wide or other-country mode.
 Titles and buyer names are rendered in German where TED provides that locale.
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ def build_expert_query(
     region: str = "NRW",
     country_code: str = "DEU",
 ) -> str:
-    """Build an active-notice query restricted to NRW or all of Germany."""
+    """Build an active-notice query restricted to NRW within Germany."""
     clean = " ".join((keyword or "").split())
     if not clean or len(clean) > 100:
         raise ValueError("Bitte ein Suchwort mit 1 bis 100 Zeichen eingeben.")
@@ -44,16 +44,12 @@ def build_expert_query(
     if country_code != "DEU":
         raise ValueError("Für diesen MVP ist nur Deutschland (DEU) freigeschaltet.")
 
-    region_filters = {
-        "NRW": "place-of-performance=DEA*",
-        "DE": "place-of-performance=DEU",
-    }
-    if region not in region_filters:
-        raise ValueError("Bitte NRW oder ganz Deutschland als Suchgebiet wählen.")
+    if region != "NRW":
+        raise ValueError("Für diesen MVP ist ausschließlich Nordrhein-Westfalen (NRW) freigeschaltet.")
 
     phrase = clean.replace('"', "")
     return (
-        f'FT~"{phrase}" AND {region_filters[region]} '
+        f'FT~"{phrase}" AND buyer-country=DEU AND place-of-performance=DEA* '
         "SORT BY publication-date DESC"
     )
 
@@ -128,7 +124,7 @@ def search_active_notices(
     timeout: int = 25,
     region: str = "NRW",
 ) -> dict:
-    """Search active TED notices for performance in NRW or Germany."""
+    """Search active TED notices for performance only in NRW, Germany."""
     query = build_expert_query(keyword, region=region)
     payload = {
         "query": query,
