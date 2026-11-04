@@ -29,8 +29,12 @@ DEFAULT_FIELDS = [
     "buyer-city",
     "buyer-post-code",
     "buyer-internet-address",
+    "organisation-street-buyer",
     "organisation-tel-buyer",
-    "organisation-email-buyer",
+    "buyer-touchpoint-post-code",
+    "buyer-touchpoint-internet-address",
+    "touchpoint-street-buyer",
+    "touchpoint-tel-buyer",
     "description-proc",
     "selection-criterion-name-lot",
     "selection-criterion-description-lot",
@@ -85,10 +89,20 @@ def _localized_text(value) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, dict):
-        for language in ("deu", "ger", "DE", "de", "eng", "en"):
-            candidate = value.get(language)
-            if isinstance(candidate, str) and candidate.strip():
-                return candidate.strip()
+        # TED multilingual maps may contain strings OR arrays of strings
+        # (notably buyer-name). Select German first, English second.
+        normalised = {str(key).lower(): candidate for key, candidate in value.items()}
+        for language in ("deu", "ger", "de", "eng", "en"):
+            candidate = normalised.get(language)
+            text = _localized_text(candidate) if candidate is not None else ""
+            if text:
+                return text
+        # Do not silently display an arbitrary language as if it were German.
+        language_keys = {"bul", "ces", "dan", "deu", "ell", "eng", "est", "fin",
+                         "fra", "gle", "hrv", "hun", "ita", "lav", "lit", "mlt",
+                         "nld", "pol", "por", "ron", "slk", "slv", "spa", "swe"}
+        if any(key in language_keys for key in normalised):
+            return ""
         for candidate in value.values():
             text = _localized_text(candidate)
             if text:
@@ -135,10 +149,14 @@ def _normalise_notice(item: dict) -> dict:
         "contact_point": first_text("buyer-contact-point", "buyer-touchpoint-contact-point"),
         "contact_person": first_text("buyer-person", "buyer-touchpoint-name"),
         "email": first_text("buyer-email", "organisation-email-buyer", "buyer-touchpoint-email"),
-        "phone": first_text("organisation-tel-buyer"),
+        "phone": first_text("touchpoint-tel-buyer", "organisation-tel-buyer"),
+        "buyer_street": first_text("organisation-street-buyer"),
         "buyer_city": first_text("buyer-city"),
         "buyer_postcode": first_text("buyer-post-code"),
         "buyer_website": first_text("buyer-internet-address"),
+        "contact_street": first_text("touchpoint-street-buyer"),
+        "contact_postcode": first_text("buyer-touchpoint-post-code"),
+        "contact_website": first_text("buyer-touchpoint-internet-address"),
         "description": first_text("description-proc"),
         "selection_criteria": first_text("selection-criterion-name-lot", "selection-criterion-description-lot"),
         "exclusion_criteria": first_text("exclusion-grounds-description", "exclusion-grounds"),
