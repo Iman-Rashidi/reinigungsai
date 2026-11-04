@@ -124,7 +124,19 @@ if ted_result:
                 st.write(f"**Kontaktperson:** {notice.get("contact_person", "") or 'Nicht veröffentlicht'}")
                 st.write(f"**E-Mail:** {notice.get("email", "") or 'Nicht veröffentlicht'}")
                 st.write(f"**Telefon:** {notice.get("phone", "") or 'Nicht veröffentlicht'}")
-                st.write(f"**Adresse:** {notice.get("buyer_postcode", "") or ''} {notice.get("buyer_city", "") or ''}".strip() or "Nicht veröffentlicht")
+                buyer_address = " ".join(part for part in (
+                    notice.get("buyer_street", ""),
+                    notice.get("buyer_postcode", ""),
+                    notice.get("buyer_city", ""),
+                ) if part).strip()
+                contact_address = " ".join(part for part in (
+                    notice.get("contact_street", ""),
+                    notice.get("contact_postcode", ""),
+                    notice.get("buyer_city", ""),
+                ) if part).strip()
+                st.write(f"**Anschrift Auftraggeber:** {buyer_address or 'Nicht veröffentlicht'}")
+                if contact_address and contact_address != buyer_address:
+                    st.write(f"**Anschrift Kontaktstelle:** {contact_address}")
                 if (notice.get("buyer_website") or "").startswith(("https://", "http://")):
                     st.markdown(f"[Website des Auftraggebers]({notice.get("buyer_website", "")})")
                 st.markdown("#### Leistungs- und Vergabedetails")
