@@ -59,6 +59,50 @@ class TEDSearchTests(unittest.TestCase):
         })
         self.assertEqual(notice["title"], "Building-cleaning services")
 
+
+    def test_multilingual_buyer_name_arrays_choose_german_and_hide_other_languages(self):
+        notice = _normalise_notice({
+            "notice-title": {
+                "eng": "Building-cleaning services",
+                "deu": "Gebäudereinigung",
+            },
+            "buyer-name": {
+                "eng": ["City of Example"],
+                "nld": ["Gemeente Voorbeeld"],
+                "deu": ["Stadt Beispiel"],
+            },
+        })
+        self.assertEqual(notice["title"], "Gebäudereinigung")
+        self.assertEqual(notice["buyer"], "Stadt Beispiel")
+
+        no_german = _normalise_notice({
+            "notice-title": {"hun": "Németország – takarítás"},
+            "buyer-name": {"nld": ["Gemeente Voorbeeld"]},
+        })
+        self.assertEqual(no_german["title"], "Ohne Titel")
+        self.assertEqual(no_german["buyer"], "")
+
+    def test_extracts_buyer_and_contact_address_and_phone_fields(self):
+        notice = _normalise_notice({
+            "notice-title": {"deu": "Gebäudereinigung"},
+            "buyer-name": {"deu": ["Stadt Beispiel"]},
+            "organisation-street-buyer": {"deu": "Rathausplatz 1"},
+            "buyer-post-code": "41747",
+            "buyer-city": {"deu": "Viersen"},
+            "organisation-tel-buyer": "+49 2162 100",
+            "touchpoint-street-buyer": {"deu": "Kreishausstraße 2"},
+            "buyer-touchpoint-post-code": "41747",
+            "buyer-touchpoint-city": {"deu": "Viersen"},
+            "touchpoint-tel-buyer": "+49 2162 200",
+        })
+        self.assertEqual(notice["buyer_street"], "Rathausplatz 1")
+        self.assertEqual(notice["buyer_postcode"], "41747")
+        self.assertEqual(notice["buyer_city"], "Viersen")
+        self.assertEqual(notice["phone"], "+49 2162 200")
+        self.assertEqual(notice["contact_street"], "Kreishausstraße 2")
+        self.assertEqual(notice["contact_postcode"], "41747")
+        self.assertEqual(notice["contact_city"], "Viersen")
+
     def test_normalises_notice_without_inventing_url(self):
         notice = _normalise_notice({
             "notice-title": "Reinigungsleistungen",
