@@ -88,11 +88,11 @@ if ted_result:
                 "Auftraggeber": notice.get("buyer", "") or "Nicht veröffentlicht",
                 "Angebotsfrist": notice.get("deadline", "") or "Nicht angegeben",
                 "Auftragswert": (
-                    f"{notice['estimated_value']} {notice['estimated_value_currency']}".strip()
-                    if notice.get("estimated_value", "") else "Nicht veröffentlicht"
+                    f"{notice.get("estimated_value", "")} {notice.get("estimated_value_currency", "")}".strip()
+                    if notice.get("estimated_value") else "Nicht veröffentlicht"
                 ),
                 "Informationsstand": (
-                    f"{notice['completeness']['present']}/{notice['completeness']['total']} Felder"
+                    f"{notice.get("completeness", "")['present']}/{notice.get("completeness", "")['total']} Felder"
                 ),
             })
         st.dataframe(
@@ -113,45 +113,45 @@ if ted_result:
         for notice in ted_result["notices"]:
             heading = notice.get("title", "")
             if notice.get("publication_number", ""):
-                heading += f" · {notice['publication_number']}"
+                heading += f" · {notice.get("publication_number", "")}"
             with st.expander(heading):
                 st.markdown("#### Auftraggeber und Kontakt")
-                st.write(f"**Auftraggeber:** {notice['buyer'] or 'Nicht veröffentlicht'}")
-                st.write(f"**Kontaktstelle:** {notice['contact_point'] or 'Nicht veröffentlicht'}")
-                st.write(f"**Kontaktperson:** {notice['contact_person'] or 'Nicht veröffentlicht'}")
-                st.write(f"**E-Mail:** {notice['email'] or 'Nicht veröffentlicht'}")
-                st.write(f"**Telefon:** {notice['phone'] or 'Nicht veröffentlicht'}")
-                st.write(f"**Adresse:** {notice['buyer_postcode'] or ''} {notice['buyer_city'] or ''}".strip() or "Nicht veröffentlicht")
-                if notice.get("buyer_website", "").startswith(("https://", "http://")):
-                    st.markdown(f"[Website des Auftraggebers]({notice['buyer_website']})")
+                st.write(f"**Auftraggeber:** {notice.get("buyer", "") or 'Nicht veröffentlicht'}")
+                st.write(f"**Kontaktstelle:** {notice.get("contact_point", "") or 'Nicht veröffentlicht'}")
+                st.write(f"**Kontaktperson:** {notice.get("contact_person", "") or 'Nicht veröffentlicht'}")
+                st.write(f"**E-Mail:** {notice.get("email", "") or 'Nicht veröffentlicht'}")
+                st.write(f"**Telefon:** {notice.get("phone", "") or 'Nicht veröffentlicht'}")
+                st.write(f"**Adresse:** {notice.get("buyer_postcode", "") or ''} {notice.get("buyer_city", "") or ''}".strip() or "Nicht veröffentlicht")
+                if (notice.get("buyer_website") or "").startswith(("https://", "http://")):
+                    st.markdown(f"[Website des Auftraggebers]({notice.get("buyer_website", "")})")
                 st.markdown("#### Leistungs- und Vergabedetails")
-                st.write(f"**Ort der Leistung:** {notice['location'] or 'Nicht angegeben'}")
-                st.write(f"**Beschreibung:** {notice['description'] or 'Nicht in TED-Suchdaten enthalten'}")
-                st.write(f"**CPV-Code:** {notice['cpv'] or 'Nicht angegeben'}")
-                st.write(f"**Verfahrensart:** {notice['procedure_type'] or 'Nicht angegeben'}")
-                st.write(f"**Geschätzter Auftragswert:** {notice['estimated_value'] or 'Nicht veröffentlicht'} {notice['estimated_value_currency'] or ''}".strip())
-                st.write(f"**Laufzeit:** {notice['contract_duration'] or 'Nicht angegeben'}")
-                st.write(f"**Veröffentlichung:** {notice['publication_date'] or 'Nicht angegeben'}")
-                st.write(f"**Angebotsfrist:** {notice['deadline'] or 'Nicht angegeben'}")
+                st.write(f"**Ort der Leistung:** {notice.get("location", "") or 'Nicht angegeben'}")
+                st.write(f"**Beschreibung:** {notice.get("description", "") or 'Nicht in TED-Suchdaten enthalten'}")
+                st.write(f"**CPV-Code:** {notice.get("cpv", "") or 'Nicht angegeben'}")
+                st.write(f"**Verfahrensart:** {notice.get("procedure_type", "") or 'Nicht angegeben'}")
+                st.write(f"**Geschätzter Auftragswert:** {notice.get("estimated_value", "") or 'Nicht veröffentlicht'} {notice.get("estimated_value_currency", "") or ''}".strip())
+                st.write(f"**Laufzeit:** {notice.get("contract_duration", "") or 'Nicht angegeben'}")
+                st.write(f"**Veröffentlichung:** {notice.get("publication_date", "") or 'Nicht angegeben'}")
+                st.write(f"**Angebotsfrist:** {notice.get("deadline", "") or 'Nicht angegeben'}")
                 st.markdown("#### Teilnahmebedingungen und Bewertung")
-                st.write(f"**Eignungskriterien:** {notice['selection_criteria'] or 'Originalunterlagen prüfen'}")
-                st.write(f"**Ausschlussgründe:** {notice['exclusion_criteria'] or 'Originalunterlagen prüfen'}")
-                st.write(f"**Zuschlagskriterien:** {notice['award_criteria'] or 'Originalunterlagen prüfen'}")
-                st.write(f"**Gewichtung:** {notice['award_weights'] or 'Nicht angegeben'}")
+                st.write(f"**Eignungskriterien:** {notice.get("selection_criteria", "") or 'Originalunterlagen prüfen'}")
+                st.write(f"**Ausschlussgründe:** {notice.get("exclusion_criteria", "") or 'Originalunterlagen prüfen'}")
+                st.write(f"**Zuschlagskriterien:** {notice.get("award_criteria", "") or 'Originalunterlagen prüfen'}")
+                st.write(f"**Gewichtung:** {notice.get("award_weights", "") or 'Nicht angegeben'}")
                 st.markdown("#### Unterlagen und Angebotsabgabe")
-                if notice.get("documents_url", "").startswith(("https://", "http://")):
-                    st.markdown(f"[Vergabeunterlagen öffnen]({notice['documents_url']})")
+                if (notice.get("documents_url") or "").startswith(("https://", "http://")):
+                    st.markdown(f"[Vergabeunterlagen öffnen]({notice.get("documents_url", "")})")
                 else:
                     st.write("**Vergabeunterlagen:** Link nicht vorhanden")
-                if notice.get("submission_url", "").startswith(("https://", "http://")):
-                    st.markdown(f"[Einreichungsportal öffnen]({notice['submission_url']})")
+                if (notice.get("submission_url") or "").startswith(("https://", "http://")):
+                    st.markdown(f"[Einreichungsportal öffnen]({notice.get("submission_url", "")})")
                 else:
                     st.write("**Einreichungsportal:** Nicht angegeben")
                 completeness = notice.get("completeness") or {"present": 0, "total": 1}
                 st.progress(completeness["present"] / completeness["total"])
                 st.caption(f"Informationsabdeckung: {completeness['present']} von {completeness['total']} Prüffeldern. Keine Erfolgswahrscheinlichkeit.")
-                if notice.get("url", "").startswith("https://ted.europa.eu/"):
-                    st.markdown(f"[Originalbekanntmachung bei TED öffnen]({notice['url']})")
+                if (notice.get("url") or "").startswith("https://ted.europa.eu/"):
+                    st.markdown(f"[Originalbekanntmachung bei TED öffnen]({notice.get("url", "")})")
                 st.warning(notice.get("evidence_note", ""))
     else:
         st.info(
