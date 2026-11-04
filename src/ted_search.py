@@ -98,10 +98,7 @@ def _localized_text(value) -> str:
             if text:
                 return text
         # Do not silently display an arbitrary language as if it were German.
-        language_keys = {"bul", "ces", "dan", "deu", "ell", "eng", "est", "fin",
-                         "fra", "gle", "hrv", "hun", "ita", "lav", "lit", "mlt",
-                         "nld", "pol", "por", "ron", "slk", "slv", "spa", "swe"}
-        if any(key in language_keys for key in normalised):
+        if normalised and all(re.fullmatch(r"[a-z]{2,3}", key) for key in normalised):
             return ""
         for candidate in value.values():
             text = _localized_text(candidate)
@@ -156,7 +153,7 @@ def _normalise_notice(item: dict) -> dict:
         "buyer_website": first_text("buyer-internet-address"),
         "contact_street": first_text("touchpoint-street-buyer"),
         "contact_postcode": first_text("buyer-touchpoint-post-code"),
-        "contact_city": first_text("buyer-touchpoint-city"),
+        "contact_city": first_text("touchpoint-city-buyer"),
         "contact_website": first_text("buyer-touchpoint-internet-address"),
         "description": first_text("description-proc"),
         "selection_criteria": first_text("selection-criterion-name-lot", "selection-criterion-description-lot"),
