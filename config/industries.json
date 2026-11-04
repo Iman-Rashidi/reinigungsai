@@ -1,269 +1,63 @@
 {
   "meta": {
-    "name": "Multi-Industry Service Taxonomy",
-    "platform": "German B2B Opportunity Discovery Platform",
-    "version": "1.0.0",
-    "description": "Configurable multi-industry service categories with search terms for the B2B opportunity discovery platform.",
-    "disclaimer": "Public visibility of these service categories does not prove current market demand, active procurement opportunities, or authorization to advertise services. This taxonomy is provided for indexing and discovery purposes only and should not be interpreted as evidence of active need or permission to approach businesses in these sectors."
+    "name": "ReinigungsRadar NRW directory taxonomy",
+    "version": "2.0.0",
+    "region": "Nordrhein-Westfalen",
+    "country": "DE",
+    "description": "Two separate directories: private-sector prospective customers and cleaning/security service providers."
   },
-  "industries": [
+  "region": {
+    "country": "Deutschland",
+    "state": "Nordrhein-Westfalen",
+    "allowed_nuts1_prefix": "DEA",
+    "note": "Only companies with a verifiable NRW location or service area belong in the directory."
+  },
+  "directories": [
     {
-      "id": "reinigung",
-      "label": "Reinigung / Gebäudereinigung",
-      "slug": "cleaning",
-      "services": [
-        "Bütreinigung",
-        "Fensterreinigung",
-        "Gebäudereinigung",
-        "Bodenpflege",
-        "Außenflächenreinigung",
-        "Spezialreinigung",
-        "Sanitärreinigung"
+      "id": "prospective_customers",
+      "label": "Kundenverzeichnis",
+      "description": "Private-sector organisations that may need cleaning or security services. Public tenders are not required.",
+      "categories": [
+        "Büro und Verwaltung", "Industrie und Produktion", "Lager und Logistik",
+        "Einzelhandel und Einkaufszentren", "Hotel und Gastronomie",
+        "Private Gesundheitsunternehmen", "Immobilienverwaltung",
+        "Bildung und private Einrichtungen", "Freizeit und Veranstaltungsorte"
       ],
-      "search_terms": [
-        "Reinigung",
-        "Gebäudereinigung",
-        "Bürreinigung",
-        "Firmenreinigung",
-        "Büroreinigung",
-        "Objektreinigung",
-        "Gebäudereiniger",
-        "Housekeeping",
-        "Facility Cleaning"
+      "fields": [
+        "Unternehmen", "Branche / Einrichtung", "Stadt", "PLZ", "Adresse",
+        "Telefon", "E-Mail", "Website", "Reinigungsbedarf", "Security-Bedarf",
+        "Quelle", "Quellenlink", "Prüfdatum", "Datenstatus", "Notizen"
       ]
     },
     {
-      "id": "sicherheit",
-      "label": "Sicherheit / Empfang",
-      "slug": "security-reception",
-      "services": [
-        "Sicherheitsdienst",
-        "Empfangsdienst",
-        "Objektsicherung",
-        "Zutrittskontrolle",
-        "Wächterdienst",
-        "Veranstaltungssicherung",
-        "Personenschutz"
-      ],
-      "search_terms": [
-        "Sicherheit",
-        "Sicherheitsdienst",
-        "Empfang",
-        "Portier",
-        "Objektschutz",
-        "Sicherheitspersonal",
-        "Wachpersonal",
-        "Rezeption",
-        "Doorkeeper",
-        "Security Guard"
-      ]
-    },
-    {
-      "id": "hausmeister",
-      "label": "Hausmeisterdienste / Facility Management",
-      "slug": "handyman-facility-management",
-      "services": [
-        "Hausmeisterservice",
-        "Gebäudemanagement",
-        "Kleinanlagenwartung",
-        "Schneeräumung",
-        "Wartung und Instandhaltung",
-        "Technisches Facility Management",
-        "Grundstücksbetreuung"
-      ],
-      "search_terms": [
-        "Hausmeister",
-        "Facility Management",
-        "Gebäudemanagement",
-        "Hausdienst",
-        "Hauswart",
-        "Property Management",
-        "Gebäudewartung",
-        "Instandhaltung",
-        "Facility Manager"
-      ]
-    },
-    {
-      "id": "catering",
-      "label": "Catering / Gemeinschaftsverpflegung",
-      "slug": "catering",
-      "services": [
-        "Bürocatering",
-        "Veranstaltungscatering",
-        "Mensa-Verpflegung",
-        "Krankenhausverpflegung",
-        "Essenslieferung",
-        "Buffet-Service",
-        "Diätische Gemeinschaftsverpflegung"
-      ],
-      "search_terms": [
-        "Catering",
-        "Gemeinschaftsverpflegung",
-        "Mittagessen",
-        "Verpflegung",
-        "Business Lunch",
-        "Mensa",
-        "Krankenhausküche",
-        "Event Catering",
-        "Food Service",
-        "Essensdienst"
-      ]
-    },
-    {
-      "id": "gartenpflege",
-      "label": "Gartenpflege / Winterdienst",
-      "slug": "landscaping",
-      "services": [
-        "Gartenpflege",
-        "Grünflächenpflege",
-        "Baumpflege",
-        "Winterdienst",
-        "Schneeräumung",
-        "Streuen und Räumung",
-        "Terrassenpflege"
-      ],
-      "search_terms": [
-        "Gartenpflege",
-        "Gärtner",
-        "Landschaftsgärtner",
-        "Grünflächenpflege",
-        "Winterdienst",
-        "Schneeräumung",
-        "Winterdienstleister",
-        "Baumpflege",
-        "Landscaping",
-        "Gartenbaubetrieb"
-      ]
-    },
-    {
-      "id": "handwerk",
-      "label": "Handwerk / Technische Wartung",
-      "slug": "handyman",
-      "services": [
-        "Elektriker",
-        "Schlosser",
-        "Sanitärinstallation",
-        "Heizungsinstallation",
-        "Technische Gebäudeausrüstung",
-        "Wartung und Reparatur",
-        "Klimaanlagen-Wartung"
-      ],
-      "search_terms": [
-        "Handwerk",
-        "Techniker",
-        "Elektriker",
-        "Installateur",
-        "Schlosser",
-        "Sanitär",
-        "Heizungsinstallation",
-        "Technische Wartung",
-        "Handwerksbetrieb",
-        "Facility Maintenance"
-      ]
-    },
-    {
-      "id": "eventpersonal",
-      "label": "Eventpersonal / Veranstaltungsservices",
-      "slug": "event-staffing",
-      "services": [
-        "Servicepersonal",
-        "Event-Scheduler",
-        "Gastronomiepersonal",
-        "Bühnentechnik",
-        "Auf- und Abbau",
-        "Rezeptionspersonal",
-        "Veranstaltungslogistik"
-      ],
-      "search_terms": [
-        "Eventpersonal",
-        "Veranstaltungsservice",
-        "Event-Services",
-        "Servicekraft",
-        "Gastronomiepersonal",
-        "Event-Helfer",
-        "Event Manager",
-        "Leihkräfte Event",
-        "Event Staff",
-        "Veranstaltungsleiter"
-      ]
-    },
-    {
-      "id": "transport",
-      "label": "Transport / Logistik / Lager",
-      "slug": "transport-logistics",
-      "services": [
-        "Lagerlogistik",
-        "Paket- und Kurierdienst",
-        "Spedition",
-        "Lagerverwaltung",
-        "Intralogistik",
-        "Möbeltransport",
-        "Kühltransport"
-      ],
-      "search_terms": [
-        "Transport",
-        "Logistik",
-        "Lager",
-        "Spedition",
-        "Kurierdienst",
-        "Paketdienst",
-        "Fahrdienst",
-        "Lagerlogistik",
-        "Supply Chain",
-        "Fleet Management"
-      ]
-    },
-    {
-      "id": "hotel",
-      "label": "Hotel / Hospitality",
-      "slug": "hospitality",
-      "services": [
-        "Haustischreinigung",
-        "Zimmerreinigung",
-        "Gastronomie-Service",
-        "Housekeeping",
-        "Konferenz-Service",
-        "Gastmanagement",
-        "Rezeption und Concierge"
-      ],
-      "search_terms": [
-        "Hotel",
-        "Gastronomie",
-        "Hospitality",
-        "Housekeeping",
-        "Gastgewerbe",
-        "Hotellerie",
-        "Zimmerreinigung",
-        "Hotelfachkraft",
-        "Beherbergung",
-        "Gastmanagement"
-      ]
-    },
-    {
-      "id": "abfall",
-      "label": "Abfall / Recycling / Umweltservices",
-      "slug": "waste-recycling",
-      "services": [
-        "Abfallentsorgung",
-        "Recycling-Service",
-        "Umweltreinigung",
-        "Grünabfuhr",
-        "Sperrmüll-Entsorgung",
-        "Entsorgungsfachbetrieb",
-        "Umweltschutz"
-      ],
-      "search_terms": [
-        "Abfall",
-        "Recycling",
-        "Umweltservice",
-        "Abfallentsorgung",
-        "Entsorgung",
-        "Müllabfuhr",
-        "Umweltschutz",
-        "Grünabfall",
-        "Recyclinghof",
-        "Waste Management"
+      "id": "service_providers",
+      "label": "Anbieter-Verzeichnis",
+      "description": "Companies that provide cleaning or security services, for supplier mapping, partnerships and market research.",
+      "categories": {
+        "Reinigung": [
+          "Gebäudereinigung", "Büroreinigung", "Unterhaltsreinigung",
+          "Glasreinigung", "Industriereinigung", "Grundreinigung", "Sonderreinigung"
+        ],
+        "Security": [
+          "Sicherheitsdienst", "Objektschutz", "Empfangsdienst",
+          "Revierdienst", "Veranstaltungssicherheit", "Zutrittskontrolle"
+        ]
+      },
+      "fields": [
+        "Unternehmen", "Dienstleistung", "Stadt", "PLZ", "Adresse",
+        "Telefon", "E-Mail", "Website", "Einsatzgebiet",
+        "Zertifikate / Erlaubnisse", "Quelle", "Quellenlink",
+        "Prüfdatum", "Datenstatus", "Notizen"
       ]
     }
-  ]
+  ],
+  "rules": {
+    "procurement_required": false,
+    "automatic_outreach": false,
+    "public_contact_data_is_marketing_consent": false,
+    "deduplication_key": ["Unternehmen", "PLZ", "Website"],
+    "data_quality_statuses": ["Zu prüfen", "Teilweise bestätigt", "Bestätigt", "Veraltet"],
+    "source_and_review_date_required": true,
+    "no_invented_contact_details": true
+  }
 }
