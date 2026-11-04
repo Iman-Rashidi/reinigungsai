@@ -33,6 +33,7 @@ DEFAULT_FIELDS = [
     "organisation-tel-buyer",
     "buyer-touchpoint-post-code",
     "buyer-touchpoint-internet-address",
+    "touchpoint-city-buyer",
     "touchpoint-street-buyer",
     "touchpoint-tel-buyer",
     "description-proc",
