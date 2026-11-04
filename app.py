@@ -7,6 +7,7 @@ import streamlit as st
 
 from src.notion_lead_analyzer import analyze_pages, extract_fields
 from src.notion_reader import NotionAPIError, query_leads
+from src.ted_search import TEDSearchError, search_active_notices
 
 st.set_page_config(page_title="ReinigungsRadar", page_icon="🧹", layout="wide")
 
@@ -36,6 +37,59 @@ st.info(
     "nicht die Verkaufswahrscheinlichkeit. Diese App verändert keine "
     "Notion-Daten und versendet keine Nachrichten."
 )
+
+# Live, read-only search of official EU procurement notices.
+st.markdown("## 🔎 Live-Suche nach öffentlichen Ausschreibungen")
+st.caption(
+    "Quelle: TED – Tenders Electronic Daily · aktive Bekanntmachungen in Deutschland · "
+    "nur lesend · keine automatische Übernahme nach Notion."
+)
+with st.form("ted_search_form"):
+    ted_keyword = st.text_input(
+        "Suchbegriff",
+        value="Gebäudereinigung",
+        help="Beispiel: Gebäudereinigung, Unterhaltsreinigung oder Glasreinigung",
+    )
+    ted_limit = st.selectbox("Maximale Treffer", [10, 20, 30, 50], index=2)
+    ted_submitted = st.form_submit_button("Jetzt live auf TED suchen")
+
+if ted_submitted:
+    try:
+        with st.spinner("Suche aktive TED-Bekanntmachungen ..."):
+            ted_result = search_active_notices(ted_keyword, limit=ted_limit)
+        st.session_state["ted_result"] = ted_result
+        st.success(
+            f"TED-Abfrage abgeschlossen: {ted_result['returned']} Treffer "
+            f"zurückgegeben."
+        )
+    except (TEDSearchError, ValueError) as exc:
+        st.error(f"TED-Suche fehlgeschlagen: {exc}")
+
+ted_result = st.session_state.get("ted_result")
+if ted_result:
+    st.caption(
+        f"Abfrage: {ted_result['query']} · Bereich: ACTIVE · "
+        f"Zurückgegeben: {ted_result['returned']} · "
+        f"Gesamt laut API: {ted_result['total']}"
+    )
+    if ted_result["notices"]:
+        for notice in ted_result["notices"]:
+            heading = notice["title"]
+            if notice["publication_number"]:
+                heading += f" · {notice['publication_number']}"
+            with st.expander(heading):
+                st.write(f"**Auftraggeber:** {notice['buyer'] or 'Nicht angegeben'}")
+                st.write(f"**Veröffentlichung:** {notice['publication_date'] or 'Nicht angegeben'}")
+                st.write(f"**Frist:** {notice['deadline'] or 'Nicht angegeben'}")
+                if notice["url"].startswith("https://ted.europa.eu/"):
+                    st.markdown(f"[Bekanntmachung bei TED öffnen]({notice['url']})")
+                st.warning(notice["evidence_note"])
+    else:
+        st.info(
+            "Für diese Suchanfrage wurden keine aktiven Bekanntmachungen "
+            "zurückgegeben. Das bedeutet nicht, dass es keine privaten "
+            "Reinigungsaufträge oder andere Beschaffungsbedarfe gibt."
+        )
 
 if not os.environ.get("NOTION_TOKEN"):
     st.error(
