@@ -39,6 +39,8 @@ CUSTOMER_COLUMNS = [
     "Telefon", "E-Mail", "Website", "Reinigungsbedarf", "Security-Bedarf",
     "Quelle", "Quellenlink", "Prüfdatum", "Datenstatus", "Potenzial",
     "Score", "Bewertungsgrundlage", "KI-Einschätzung", "Offene Informationen",
+    "Gebäudetyp", "Reinigungsbedarf", "Security-Bedarf", "Bedarfsbelege",
+    "Aktueller Anbieter", "Beschaffungsweg", "Standorte", "Bedarfs-Prüfdatum",
     "Prüfnotizen",
 ]
 PROVIDER_COLUMNS = [
@@ -61,6 +63,14 @@ ALIASES = {
     "Score": ("Score", "Priorität", "Research Priority"),
     "Bewertungsgrundlage": ("Bewertungsgrundlage", "Potenzial", "Begründung"),
     "KI-Einschätzung": ("KI-Einschätzung", "Einschätzung"),
+    "Gebäudetyp": ("Gebäudetyp", "Objekttyp", "Gebäudeart"),
+    "Reinigungsbedarf": ("Reinigungsbedarf", "Cleaning Need", "Reinigungsleistungen"),
+    "Security-Bedarf": ("Security-Bedarf", "Sicherheitsbedarf", "Security Need"),
+    "Bedarfsbelege": ("Bedarfsbelege", "Need Evidence", "Nachweis Bedarf"),
+    "Aktueller Anbieter": ("Aktueller Anbieter", "Bestehender Dienstleister", "Current Provider"),
+    "Beschaffungsweg": ("Beschaffungsweg", "Einkauf / Vergabe", "Procurement Route"),
+    "Standorte": ("Standorte", "Anzahl Standorte", "Locations"),
+    "Bedarfs-Prüfdatum": ("Bedarfs-Prüfdatum", "Need Review Date"),
     "Prüfnotizen": ("Prüfnotizen", "Notizen"),
 }
 
@@ -162,6 +172,90 @@ def chart_frame(counts: dict[str, int]) -> pd.DataFrame:
     return pd.DataFrame({"Kategorie": list(counts.keys()), "Anzahl": list(counts.values())})
 
 
+
+# Transparent, rule-based need hypotheses. These rules never claim that a
+# company has a confirmed need merely because of its industry.
+NEED_RULES = [
+    (("industrie", "produktion", "fertigung", "werk", "fabrik", "maschinenbau"),
+     ["Industriereinigung (zu prüfen)", "Unterhaltsreinigung für Büro-/Sozialflächen", "Glas- und Fassadenreinigung (objektabhängig)"],
+     ["Gebäudeflächen und Produktionsbereiche", "Reinigungsintervalle und Sicherheitsvorgaben", "interne oder externe Leistungserbringung"]),
+    (("büro", "businesspark", "business park", "coworking", "verwaltung", "bürogebäude"),
+     ["Büro- und Unterhaltsreinigung", "Glasreinigung", "Grundreinigung (periodisch)"],
+     ["Nutzfläche und Belegungsgrad", "Reinigungsfrequenz", "Hausverwaltung oder Facility Management"]),
+    (("einzelhandel", "handel", "shopping", "center", "markt", "möbelhaus", "kaufhaus"),
+     ["Reinigung von Verkaufs- und Gemeinschaftsflächen", "Glas- und Eingangsbereichreinigung", "Grundreinigung außerhalb der Öffnungszeiten"],
+     ["Öffnungszeiten und Publikumsverkehr", "Anzahl und Größe der Verkaufsflächen", "interne oder externe Reinigung"]),
+    (("hotel", "gastronomie", "restaurant", "übernachtung"),
+     ["Reinigung öffentlicher und interner Flächen", "Glasreinigung", "Sonderreinigung nach Bedarf"],
+     ["Zimmer-/Flächenumfang", "Reinigungsorganisation und Spitzenzeiten", "Hygiene- und Qualitätsvorgaben"]),
+    (("klinik", "krankenhaus", "medizin", "gesundheit", "pflege"),
+     ["Reinigung sensibler Bereiche (fachlich und regulatorisch zu prüfen)", "Unterhaltsreinigung öffentlicher/administrativer Flächen", "Zutritts- und Objektschutz (objektabhängig)"],
+     ["Bereichsspezifische Hygieneanforderungen", "Qualifikationen und Nachweise", "Zutritts- und Sicherheitskonzept"]),
+    (("logistik", "lager", "distribution", "versand"),
+     ["Reinigung von Lager- und Verkehrsflächen", "Unterhaltsreinigung von Büro-/Sozialflächen", "Objektschutz und Zutrittskontrolle (objektabhängig)"],
+     ["Lager- und Verkehrsflächen", "Schichtbetrieb und Betriebszeiten", "Sicherheits- und Zutrittsanforderungen"]),
+]
+
+def analyze_company_needs(row: dict) -> dict:
+    """Return explainable service hypotheses and gaps, not a sales-probability prediction."""
+    industry = " ".join((row.get("Branche / Einrichtung", ""), row.get("Gebäudetyp", ""))).casefold()
+    explicit_cleaning = row.get("Reinigungsbedarf", "").strip()
+    explicit_security = row.get("Security-Bedarf", "").strip()
+    candidates = []
+    evidence_level = "Branchenbasierte Hypothese"
+    if explicit_cleaning:
+        candidates.extend(("Reinigung", item.strip()) for item in re.split(r"[;,\\n]+", explicit_cleaning) if item.strip())
+        evidence_level = "Bedarf im Datensatz hinterlegt · Beleg prüfen"
+    if explicit_security:
+        candidates.extend(("Sicherheit", item.strip()) for item in re.split(r"[;,\\n]+", explicit_security) if item.strip())
+        evidence_level = "Bedarf im Datensatz hinterlegt · Beleg prüfen"
+    matched_rule = None
+    for keywords, cleaning, gaps in NEED_RULES:
+        if any(keyword in industry for keyword in keywords):
+            matched_rule = (cleaning, gaps)
+            if not explicit_cleaning:
+                candidates.extend(("Reinigung", item) for item in cleaning)
+            break
+    if not explicit_security and matched_rule:
+        if any(word in industry for word in ("klinik", "krankenhaus", "logistik", "lager", "center", "shopping", "hotel")):
+            candidates.append(("Sicherheit", "Objektschutz / Zutrittskontrolle (nur bei konkretem Bedarf prüfen)"))
+    if not matched_rule and not candidates:
+        candidates = [("Reinigung", "Bedarf offen · Objekttyp und Flächennutzung zuerst ermitteln")]
+    gaps = list(matched_rule[1]) if matched_rule else ["Gebäudetyp und Flächennutzung", "Flächenumfang und Reinigungsfrequenz", "Interne oder externe Leistungserbringung"]
+    for field, label in (
+        ("Bedarfsbelege", "konkreter Bedarfsbeleg"),
+        ("Aktueller Anbieter", "aktueller Dienstleister"),
+        ("Beschaffungsweg", "Beschaffungsweg / zuständige Stelle"),
+        ("Standorte", "Standorte und Flächenumfang"),
+    ):
+        if not row.get(field, "").strip():
+            gaps.append(label)
+    return {
+        "candidates": candidates,
+        "gaps": list(dict.fromkeys(gaps)),
+        "evidence_level": evidence_level,
+        "evidence": row.get("Bedarfsbelege", "").strip(),
+        "current_provider": row.get("Aktueller Anbieter", "").strip() or "Nicht bekannt",
+        "procurement": row.get("Beschaffungsweg", "").strip() or "Nicht bekannt",
+        "review_date": row.get("Bedarfs-Prüfdatum", "").strip() or "Nicht angegeben",
+        "is_explicit": bool(explicit_cleaning or explicit_security),
+    }
+
+
+def provider_matches_for_need(need_label: str, city: str, providers: list[dict]) -> list[dict]:
+    """Show only directory entries with a literal service/city overlap."""
+    terms = [term for term in re.findall(r"[a-zäöüß]{5,}", need_label.casefold())
+             if term not in {"(objektabhängig)", "(periodisch)", "prüfen", "bedarf"}]
+    matches = []
+    for provider in providers:
+        service = provider.get("Dienstleistung", "").casefold()
+        provider_city = provider.get("Stadt", "").casefold()
+        city_ok = not city or not provider_city or city.casefold() in provider_city
+        if city_ok and terms and any(term in service for term in terms):
+            matches.append(provider)
+    return matches[:5]
+
+
 def render_directory(rows: list[dict], columns: list[str], filename: str, label: str) -> None:
     st.dataframe(rows, use_container_width=True, hide_index=True)
     st.download_button(
@@ -236,8 +330,8 @@ st.info(
     icon="🔒",
 )
 
-overview, opportunities, customers_tab, providers_tab, market, quality, sources = st.tabs([
-    "◈ Overview", "◎ Opportunity Explorer", "▦ Kunden", "⬡ Anbieter",
+overview, opportunities, needs_tab, customers_tab, providers_tab, market, quality, sources = st.tabs([
+    "◈ Overview", "◎ Opportunity Explorer", "⌖ Bedarfsanalyse", "▦ Kunden", "⬡ Anbieter",
     "⌁ Marktanalyse", "✓ Datenqualität", "⚙ Datenquellen",
 ])
 
@@ -252,6 +346,8 @@ with overview:
     k3.metric("Bewertete Kunden", len(scored_values))
     source_complete = sum(bool(row.get("Quellenlink") or row.get("Quelle")) for row in customer_rows)
     k4.metric("Kunden mit Quellenhinweis", source_complete, help="Mindestens Quellenname oder Quellenlink vorhanden.")
+    need_candidates = sum(bool(analyze_company_needs(row)["candidates"]) for row in customers)
+    st.metric("Kunden mit analysierbaren Bedarfshypothesen", need_candidates, help="Branchenbasierte Hypothesen, keine bestätigten Bedarfe.")
     left, right = st.columns([1.25, 1])
     with left:
         st.markdown("#### Kunden nach Branche")
@@ -305,6 +401,77 @@ with opportunities:
         st.dataframe(customers, use_container_width=True, hide_index=True)
     else:
         st.info("Nach dem Laden der Kundendaten erscheinen hier bewertete Recherche-Kandidaten.")
+
+
+with needs_tab:
+    st.subheader("Bedarfsanalyse · Need Intelligence")
+    st.caption("Branchenwissen erzeugt Hypothesen. Ein bestätigter Bedarf erfordert einen konkreten, datierten Beleg oder eine Bestätigung des Unternehmens.")
+    need_rows = customers
+    explicit_count = sum(bool(row.get("Reinigungsbedarf") or row.get("Security-Bedarf")) for row in need_rows)
+    hypothesis_count = sum(bool(analyze_company_needs(row)["candidates"]) for row in need_rows)
+    n1, n2, n3 = st.columns(3)
+    n1.metric("Unternehmen im Filter", len(need_rows))
+    n2.metric("Bedarf im Datensatz hinterlegt", explicit_count)
+    n3.metric("Profile mit Analyse-Hypothese", hypothesis_count)
+    st.warning("Eine Branchenzuordnung ist kein Nachweis eines tatsächlichen Bedarfs, eines Budgets oder einer Wechselabsicht. Unbekannte Angaben bleiben ausdrücklich offen.")
+    if not need_rows:
+        st.info("Zuerst Kundendaten aus Notion laden oder Filter anpassen.")
+    else:
+        for row in need_rows:
+            analysis = analyze_company_needs(row)
+            with st.expander(f"{row.get('Unternehmen') or 'Unternehmen'} · {row.get('Stadt') or 'Ort unbekannt'}", expanded=False):
+                a, b = st.columns([1.25, 1])
+                with a:
+                    st.markdown("**Mögliche passende Leistungen**")
+                    for group, service in analysis["candidates"]:
+                        st.markdown(f"- **{group}:** {service}")
+                    st.caption(f"Grundlage: {analysis['evidence_level']}")
+                    if analysis["evidence"]:
+                        st.markdown("**Hinterlegte Belege**")
+                        st.write(analysis["evidence"])
+                    else:
+                        st.info("Kein konkreter Bedarfsbeleg im Datensatz hinterlegt.")
+                    st.markdown("**Aktueller Anbieter:** " + analysis["current_provider"])
+                    st.markdown("**Beschaffungsweg:** " + analysis["procurement"])
+                with b:
+                    st.markdown("**Was vor einer Kooperation zu klären ist**")
+                    for gap in analysis["gaps"]:
+                        st.markdown(f"- {gap}")
+                    st.caption("Bedarfsanalyse zuletzt geprüft: " + analysis["review_date"])
+                st.markdown("**Passende Anbieter im Verzeichnis (nur Text-/Ortsübereinstimmung)**")
+                shown = 0
+                for group, service in analysis["candidates"]:
+                    for provider in provider_matches_for_need(service, row.get("Stadt", ""), providers):
+                        st.write(f"- {provider.get('Unternehmen')} · {provider.get('Dienstleistung')} · {provider.get('Stadt')}")
+                        shown += 1
+                if not shown:
+                    st.caption("Kein passender Eintrag über die vorhandenen Dienstleistungs- und Ortsangaben gefunden. Das bedeutet nicht, dass es keine Anbieter gibt.")
+                st.markdown("**Empfohlener nächster Recherche-Schritt**")
+                if not analysis["evidence"]:
+                    st.write("Offizielle Unternehmensseite und öffentliche Objektinformationen prüfen; einen konkreten Beleg für einen ausgeschriebenen oder kommunizierten Bedarf suchen.")
+                elif not analysis["current_provider"] or analysis["current_provider"] == "Nicht bekannt":
+                    st.write("Zuständige Einkaufs-, Facility-Management- oder Objektleitung und den offiziellen Kooperationsweg recherchieren.")
+                else:
+                    st.write("Anforderungen, Leistungsumfang und zulässigen Weg zur Angebotsabgabe anhand der Unternehmensangaben prüfen.")
+    st.markdown("#### Export der Bedarfsanalyse")
+    if need_rows:
+        need_export = []
+        for row in need_rows:
+            analysis = analyze_company_needs(row)
+            need_export.append({
+                "Unternehmen": row.get("Unternehmen", ""),
+                "Stadt": row.get("Stadt", ""),
+                "Branche": row.get("Branche / Einrichtung", ""),
+                "Bedarfshypothesen": " | ".join(f"{group}: {service}" for group, service in analysis["candidates"]),
+                "Bedarfsstatus": analysis["evidence_level"],
+                "Bedarfsbelege": analysis["evidence"],
+                "Aktueller Anbieter": analysis["current_provider"],
+                "Beschaffungsweg": analysis["procurement"],
+                "Offene Fragen": " | ".join(analysis["gaps"]),
+                "Prüfdatum": analysis["review_date"],
+                "Quellenlink": row.get("Quellenlink", ""),
+            })
+        st.download_button("Bedarfsanalyse als CSV exportieren", csv_bytes(need_export, list(need_export[0].keys())), "reinigungsradar_bedarfsanalyse.csv", "text/csv")
 
 with customers_tab:
     st.subheader("Kundenverzeichnis")
