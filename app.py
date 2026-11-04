@@ -38,11 +38,12 @@ st.info(
     "Notion-Daten und versendet keine Nachrichten."
 )
 
-# Live, read-only search of official EU procurement notices.
+# Live, read-only search of official TED procurement notices.
 st.markdown("## 🔎 Live-Suche nach öffentlichen Ausschreibungen")
 st.caption(
-    "Quelle: TED – Tenders Electronic Daily · aktive Bekanntmachungen in Deutschland · "
-    "nur lesend · keine automatische Übernahme nach Notion."
+    "Quelle: TED – Tenders Electronic Daily · nur Deutschland · "
+    "standardmäßig Nordrhein-Westfalen (NUTS-Code DEA) · nur lesend · "
+    "keine automatische Übernahme nach Notion."
 )
 with st.form("ted_search_form"):
     ted_keyword = st.text_input(
@@ -50,13 +51,23 @@ with st.form("ted_search_form"):
         value="Gebäudereinigung",
         help="Beispiel: Gebäudereinigung, Unterhaltsreinigung oder Glasreinigung",
     )
+    ted_region_label = st.selectbox(
+        "Suchgebiet",
+        ["Nordrhein-Westfalen (NRW)", "Ganz Deutschland"],
+        index=0,
+    )
+    ted_region = "NRW" if ted_region_label.startswith("Nordrhein-Westfalen") else "DE"
     ted_limit = st.selectbox("Maximale Treffer", [10, 20, 30, 50], index=2)
     ted_submitted = st.form_submit_button("Jetzt live auf TED suchen")
 
 if ted_submitted:
     try:
-        with st.spinner("Suche aktive TED-Bekanntmachungen ..."):
-            ted_result = search_active_notices(ted_keyword, limit=ted_limit)
+        with st.spinner("Suche aktive TED-Bekanntmachungen in Deutschland ..."):
+            ted_result = search_active_notices(
+                ted_keyword,
+                limit=ted_limit,
+                region=ted_region,
+            )
         st.session_state["ted_result"] = ted_result
         st.success(
             f"TED-Abfrage abgeschlossen: {ted_result['returned']} Treffer "
@@ -67,9 +78,14 @@ if ted_submitted:
 
 ted_result = st.session_state.get("ted_result")
 if ted_result:
+    area_label = (
+        "Nordrhein-Westfalen"
+        if ted_result.get("region") == "NRW"
+        else "Deutschland"
+    )
     st.caption(
-        f"Abfrage: {ted_result['query']} · Bereich: ACTIVE · "
-        f"Zurückgegeben: {ted_result['returned']} · "
+        f"Suchgebiet: {area_label} · Abfrage: {ted_result['query']} · "
+        f"Bereich: ACTIVE · Zurückgegeben: {ted_result['returned']} · "
         f"Gesamt laut API: {ted_result['total']}"
     )
     if ted_result["notices"]:
@@ -79,6 +95,7 @@ if ted_result:
                 heading += f" · {notice['publication_number']}"
             with st.expander(heading):
                 st.write(f"**Auftraggeber:** {notice['buyer'] or 'Nicht angegeben'}")
+                st.write(f"**Ort / Region:** {notice['location'] or 'Nicht angegeben'}")
                 st.write(f"**Veröffentlichung:** {notice['publication_date'] or 'Nicht angegeben'}")
                 st.write(f"**Frist:** {notice['deadline'] or 'Nicht angegeben'}")
                 if notice["url"].startswith("https://ted.europa.eu/"):
@@ -86,7 +103,7 @@ if ted_result:
                 st.warning(notice["evidence_note"])
     else:
         st.info(
-            "Für diese Suchanfrage wurden keine aktiven Bekanntmachungen "
+            "Für dieses Suchgebiet wurden keine aktiven Bekanntmachungen "
             "zurückgegeben. Das bedeutet nicht, dass es keine privaten "
             "Reinigungsaufträge oder andere Beschaffungsbedarfe gibt."
         )
