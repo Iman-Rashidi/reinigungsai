@@ -11,6 +11,12 @@ from src.ted_search import TEDSearchError, search_active_notices
 
 st.set_page_config(page_title="ReinigungsRadar", page_icon="🧹", layout="wide")
 
+# Invalidate cached results created by older TED parsers or query versions.
+TED_RESULT_SCHEMA_VERSION = "2026-11-04-language-address-nrw-v2"
+if st.session_state.get("ted_result_schema_version") != TED_RESULT_SCHEMA_VERSION:
+    st.session_state.pop("ted_result", None)
+    st.session_state["ted_result_schema_version"] = TED_RESULT_SCHEMA_VERSION
+
 # Streamlit Community Cloud stores credentials in st.secrets. The Notion
 # client reads environment variables, so copy only the required values into
 # this process environment. No credentials are displayed or written to files.
