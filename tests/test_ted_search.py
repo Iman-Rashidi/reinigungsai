@@ -96,7 +96,7 @@ class TEDSearchTests(unittest.TestCase):
         self.assertEqual(notice["phone"], "+49 2162 12345")
         self.assertEqual(notice["selection_criteria"], "Referenzen erforderlich")
         self.assertEqual(notice["award_criteria"], "Preis und Qualität")
-        self.assertEqual(notice["completeness"]["present"], 9)
+        self.assertEqual(notice["completeness"]["present"], 10)
 
 
 if __name__ == "__main__":
