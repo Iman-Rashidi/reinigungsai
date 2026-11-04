@@ -92,7 +92,7 @@ class TEDSearchTests(unittest.TestCase):
             "organisation-tel-buyer": "+49 2162 100",
             "touchpoint-street-buyer": {"deu": "Kreishausstraße 2"},
             "buyer-touchpoint-post-code": "41747",
-            "buyer-touchpoint-city": {"deu": "Viersen"},
+            "touchpoint-city-buyer": {"deu": "Viersen"},
             "touchpoint-tel-buyer": "+49 2162 200",
         })
         self.assertEqual(notice["buyer_street"], "Rathausplatz 1")
