@@ -83,12 +83,43 @@ if ted_result:
             if notice["publication_number"]:
                 heading += f" · {notice['publication_number']}"
             with st.expander(heading):
-                st.write(f"**Auftraggeber:** {notice['buyer'] or 'Nicht angegeben'}")
-                st.write(f"**Ort / Region:** {notice['location'] or 'Nicht angegeben'}")
+                st.markdown("#### Auftraggeber und Kontakt")
+                st.write(f"**Auftraggeber:** {notice['buyer'] or 'Nicht veröffentlicht'}")
+                st.write(f"**Kontaktstelle:** {notice['contact_point'] or 'Nicht veröffentlicht'}")
+                st.write(f"**Kontaktperson:** {notice['contact_person'] or 'Nicht veröffentlicht'}")
+                st.write(f"**E-Mail:** {notice['email'] or 'Nicht veröffentlicht'}")
+                st.write(f"**Telefon:** {notice['phone'] or 'Nicht veröffentlicht'}")
+                st.write(f"**Adresse:** {notice['buyer_postcode'] or ''} {notice['buyer_city'] or ''}".strip() or "Nicht veröffentlicht")
+                if notice["buyer_website"].startswith(("https://", "http://")):
+                    st.markdown(f"[Website des Auftraggebers]({notice['buyer_website']})")
+                st.markdown("#### Leistungs- und Vergabedetails")
+                st.write(f"**Ort der Leistung:** {notice['location'] or 'Nicht angegeben'}")
+                st.write(f"**Beschreibung:** {notice['description'] or 'Nicht in TED-Suchdaten enthalten'}")
+                st.write(f"**CPV-Code:** {notice['cpv'] or 'Nicht angegeben'}")
+                st.write(f"**Verfahrensart:** {notice['procedure_type'] or 'Nicht angegeben'}")
+                st.write(f"**Geschätzter Auftragswert:** {notice['estimated_value'] or 'Nicht veröffentlicht'} {notice['estimated_value_currency'] or ''}".strip())
+                st.write(f"**Laufzeit:** {notice['contract_duration'] or 'Nicht angegeben'}")
                 st.write(f"**Veröffentlichung:** {notice['publication_date'] or 'Nicht angegeben'}")
-                st.write(f"**Frist:** {notice['deadline'] or 'Nicht angegeben'}")
+                st.write(f"**Angebotsfrist:** {notice['deadline'] or 'Nicht angegeben'}")
+                st.markdown("#### Teilnahmebedingungen und Bewertung")
+                st.write(f"**Eignungskriterien:** {notice['selection_criteria'] or 'Originalunterlagen prüfen'}")
+                st.write(f"**Ausschlussgründe:** {notice['exclusion_criteria'] or 'Originalunterlagen prüfen'}")
+                st.write(f"**Zuschlagskriterien:** {notice['award_criteria'] or 'Originalunterlagen prüfen'}")
+                st.write(f"**Gewichtung:** {notice['award_weights'] or 'Nicht angegeben'}")
+                st.markdown("#### Unterlagen und Angebotsabgabe")
+                if notice["documents_url"].startswith(("https://", "http://")):
+                    st.markdown(f"[Vergabeunterlagen öffnen]({notice['documents_url']})")
+                else:
+                    st.write("**Vergabeunterlagen:** Link nicht vorhanden")
+                if notice["submission_url"].startswith(("https://", "http://")):
+                    st.markdown(f"[Einreichungsportal öffnen]({notice['submission_url']})")
+                else:
+                    st.write("**Einreichungsportal:** Nicht angegeben")
+                completeness = notice["completeness"]
+                st.progress(completeness["present"] / completeness["total"])
+                st.caption(f"Informationsabdeckung: {completeness['present']} von {completeness['total']} Prüffeldern. Keine Erfolgswahrscheinlichkeit.")
                 if notice["url"].startswith("https://ted.europa.eu/"):
-                    st.markdown(f"[Bekanntmachung bei TED öffnen]({notice['url']})")
+                    st.markdown(f"[Originalbekanntmachung bei TED öffnen]({notice['url']})")
                 st.warning(notice["evidence_note"])
     else:
         st.info(
