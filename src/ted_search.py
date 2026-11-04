@@ -1,8 +1,8 @@
-"""Read-only search client for active EU public procurement notices on TED.
+"""Read-only search client for active German public procurement notices on TED.
 
-Uses the official, anonymous TED Search API. It never submits notices or
-writes to Notion. Search results are evidence leads, not proof of an award
-or an externally outsourced cleaning requirement.
+The default search is restricted to North Rhine-Westphalia (NUTS 1 code DEA).
+The optional Germany-wide mode uses the place-of-performance country filter.
+Titles and buyer names are rendered in German where TED provides that locale.
 """
 from __future__ import annotations
 
@@ -16,9 +16,13 @@ DEFAULT_FIELDS = [
     "publication-number",
     "notice-title",
     "buyer-name",
-    "buyer-country",
     "publication-date",
     "deadline",
+    "place-of-performance",
+    "place-of-performance-city-proc",
+    "place-of-performance-city-lot",
+    "place-of-performance-city-part",
+    "place-of-performance-subdiv-proc",
 ]
 
 
@@ -26,8 +30,12 @@ class TEDSearchError(RuntimeError):
     """Raised when the public TED search request fails."""
 
 
-def build_expert_query(keyword: str, country_code: str = "DEU") -> str:
-    """Build a conservative full-text query for active German notices."""
+def build_expert_query(
+    keyword: str,
+    region: str = "NRW",
+    country_code: str = "DEU",
+) -> str:
+    """Build an active-notice query restricted to NRW or all of Germany."""
     clean = " ".join((keyword or "").split())
     if not clean or len(clean) > 100:
         raise ValueError("Bitte ein Suchwort mit 1 bis 100 Zeichen eingeben.")
@@ -35,13 +43,48 @@ def build_expert_query(keyword: str, country_code: str = "DEU") -> str:
         raise ValueError("Das Suchwort enthält nicht unterstützte Zeichen.")
     if country_code != "DEU":
         raise ValueError("Für diesen MVP ist nur Deutschland (DEU) freigeschaltet.")
+
+    region_filters = {
+        "NRW": "place-of-performance=DEA*",
+        "DE": "place-of-performance=DEU",
+    }
+    if region not in region_filters:
+        raise ValueError("Bitte NRW oder ganz Deutschland als Suchgebiet wählen.")
+
     phrase = clean.replace('"', "")
-    return f'FT~"{phrase}" AND buyer-country={country_code} SORT BY publication-date DESC'
+    return (
+        f'FT~"{phrase}" AND {region_filters[region]} '
+        "SORT BY publication-date DESC"
+    )
+
+
+def _localized_text(value) -> str:
+    """Choose German text from TED multilingual fields, then English."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        for language in ("deu", "ger", "DE", "de", "eng", "en"):
+            candidate = value.get(language)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for candidate in value.values():
+            text = _localized_text(candidate)
+            if text:
+                return text
+        return ""
+    if isinstance(value, list):
+        parts = [_localized_text(item) for item in value]
+        return "; ".join(part for part in parts if part)
+    return ""
 
 
 def _normalise_notice(item: dict) -> dict:
-    """Map known TED fields into a stable, display-safe shape."""
-    title = item.get("notice-title") or item.get("title") or "Ohne Titel"
+    """Map known TED fields into a stable, German-language display shape."""
+    title = _localized_text(item.get("notice-title") or item.get("title")) or "Ohne Titel"
     publication_number = item.get("publication-number") or item.get("publicationNumber") or ""
     url = item.get("url") or item.get("notice-url") or ""
     if not url and isinstance(item.get("links"), list):
@@ -49,13 +92,26 @@ def _normalise_notice(item: dict) -> dict:
             if isinstance(link, dict) and link.get("url"):
                 url = link["url"]
                 break
+
+    location_parts = []
+    for key in (
+        "place-of-performance-city-proc",
+        "place-of-performance-city-lot",
+        "place-of-performance-city-part",
+        "place-of-performance-subdiv-proc",
+        "place-of-performance",
+    ):
+        value = _localized_text(item.get(key))
+        if value and value not in location_parts:
+            location_parts.append(value)
+
     return {
-        "title": str(title),
+        "title": title,
         "publication_number": str(publication_number),
-        "buyer": str(item.get("buyer-name") or item.get("buyerName") or ""),
-        "buyer_country": str(item.get("buyer-country") or item.get("buyerCountry") or ""),
-        "publication_date": str(item.get("publication-date") or item.get("publicationDate") or ""),
-        "deadline": str(item.get("deadline") or ""),
+        "buyer": _localized_text(item.get("buyer-name") or item.get("buyerName")),
+        "publication_date": _localized_text(item.get("publication-date") or item.get("publicationDate")),
+        "deadline": _localized_text(item.get("deadline")),
+        "location": " · ".join(location_parts),
         "url": str(url),
         "source": "TED – Tenders Electronic Daily",
         "evidence_note": (
@@ -66,9 +122,14 @@ def _normalise_notice(item: dict) -> dict:
     }
 
 
-def search_active_notices(keyword: str, limit: int = 30, timeout: int = 25) -> dict:
-    """Search active notices in Germany using the anonymous official TED API."""
-    query = build_expert_query(keyword)
+def search_active_notices(
+    keyword: str,
+    limit: int = 30,
+    timeout: int = 25,
+    region: str = "NRW",
+) -> dict:
+    """Search active TED notices for performance in NRW or Germany."""
+    query = build_expert_query(keyword, region=region)
     payload = {
         "query": query,
         "fields": DEFAULT_FIELDS,
@@ -100,6 +161,7 @@ def search_active_notices(keyword: str, limit: int = 30, timeout: int = 25) -> d
     total = data.get("total") or data.get("totalNoticeCount") or data.get("total-notices")
     return {
         "query": query,
+        "region": region,
         "total": total if total is not None else len(notices),
         "returned": len(notices),
         "notices": notices,
