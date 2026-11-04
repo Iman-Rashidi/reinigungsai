@@ -10,17 +10,18 @@ class TEDSearchTests(unittest.TestCase):
     def test_default_search_is_limited_to_nrw(self):
         self.assertEqual(
             build_expert_query("Gebäudereinigung"),
-            'FT~"Gebäudereinigung" AND place-of-performance=DEA* '
+            'FT~"Gebäudereinigung" AND buyer-country=DEU AND place-of-performance=DEA* '
             "SORT BY publication-date DESC",
         )
 
-    def test_germany_wide_search_stays_in_germany(self):
-        self.assertIn(
-            "place-of-performance=DEU",
-            build_expert_query("Glasreinigung", region="DE"),
-        )
+    def test_search_is_limited_to_germany_and_nrw(self):
+        query = build_expert_query("Glasreinigung")
+        self.assertIn("buyer-country=DEU", query)
+        self.assertIn("place-of-performance=DEA*", query)
 
-    def test_rejects_unknown_region_or_country(self):
+    def test_rejects_other_regions_and_countries(self):
+        with self.assertRaises(ValueError):
+            build_expert_query("Reinigung", region="DE")
         with self.assertRaises(ValueError):
             build_expert_query("Reinigung", region="AT")
         with self.assertRaises(ValueError):
