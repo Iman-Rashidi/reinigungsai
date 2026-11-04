@@ -1,311 +1,199 @@
-"""Read-only Streamlit dashboard for ReinigungsRadar."""
+"""Two-directory NRW dashboard for ReinigungsRadar.
+
+Read-only Notion integration. Separate data sources:
+- NOTION_DATA_SOURCE_ID: prospective private-sector customers
+- PROVIDER_DATA_SOURCE_ID: cleaning/security service providers
+"""
 from __future__ import annotations
 
+import csv
+import io
 import os
 
 import streamlit as st
 
-from src.notion_lead_analyzer import analyze_pages, extract_fields
-from src.notion_reader import NotionAPIError, query_leads
-from src.ted_search import TEDSearchError, search_active_notices
+from src.notion_reader import NotionAPIError, query_data_source
 
-st.set_page_config(page_title="ReinigungsRadar", page_icon="🧹", layout="wide")
+st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
-# Invalidate cached results created by older TED parsers or query versions.
-TED_RESULT_SCHEMA_VERSION = "2026-11-04-language-address-nrw-v2"
-if st.session_state.get("ted_result_schema_version") != TED_RESULT_SCHEMA_VERSION:
-    st.session_state.pop("ted_result", None)
-    st.session_state["ted_result_schema_version"] = TED_RESULT_SCHEMA_VERSION
-
-# Streamlit Community Cloud stores credentials in st.secrets. The Notion
-# client reads environment variables, so copy only the required values into
-# this process environment. No credentials are displayed or written to files.
-for secret_name in ("NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "NOTION_VERSION"):
+for secret_name in ("NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
     if not os.environ.get(secret_name):
         try:
-            secret_value = st.secrets.get(secret_name)
+            value = st.secrets.get(secret_name)
         except Exception:
-            secret_value = None
-        if secret_value:
-            os.environ[secret_name] = str(secret_value)
+            value = None
+        if value:
+            os.environ[secret_name] = str(value)
 
-st.title("🧹 ReinigungsRadar")
-st.subheader("Das intelligente Lead-Cockpit für Reinigungsunternehmen")
-st.caption("Ein Produkt von ReinigungsAI · Interner MVP · Nur lesender Zugriff")
-
-st.warning(
-    "Interner Prototyp: Nicht mit echten Kundendaten öffentlich einsetzen, "
-    "bevor Authentifizierung, Mandantentrennung, Zugriffskontrollen und "
-    "Datenschutzprüfung umgesetzt sind."
-)
-st.info(
-    "Der Score misst dokumentierte Nachweise und Recherchepriorität, "
-    "nicht die Verkaufswahrscheinlichkeit. Diese App verändert keine "
-    "Notion-Daten und versendet keine Nachrichten."
-)
-
-# Live, read-only search of official TED procurement notices.
-st.markdown("## 🔎 Live-Suche nach öffentlichen Ausschreibungen")
-st.caption(
-    "Quelle: TED – Tenders Electronic Daily · ausschließlich Deutschland, "
-    "nur Nordrhein-Westfalen (NRW / NUTS-Code DEA) · nur lesend · "
-    "keine automatische Übernahme nach Notion."
-)
-with st.form("ted_search_form"):
-    ted_keyword = st.text_input(
-        "Suchbegriff",
-        value="Gebäudereinigung",
-        help="Beispiel: Gebäudereinigung, Unterhaltsreinigung oder Glasreinigung",
-    )
-    st.text_input("Suchgebiet", value="Nordrhein-Westfalen (NRW), Deutschland", disabled=True)
-    ted_limit = st.selectbox("Maximale Treffer", [10, 20, 30, 50], index=2)
-    ted_submitted = st.form_submit_button("Jetzt live auf TED suchen")
-
-if ted_submitted:
-    try:
-        with st.spinner("Suche aktive TED-Bekanntmachungen in Nordrhein-Westfalen ..."):
-            ted_result = search_active_notices(
-                ted_keyword,
-                limit=ted_limit,
-            )
-        st.session_state["ted_result"] = ted_result
-        st.success(
-            f"TED-Abfrage abgeschlossen: {ted_result['returned']} Treffer "
-            f"zurückgegeben."
-        )
-    except (TEDSearchError, ValueError) as exc:
-        st.error(f"TED-Suche fehlgeschlagen: {exc}")
-
-ted_result = st.session_state.get("ted_result")
-if ted_result:
-    st.caption(
-        f"Suchgebiet: Nordrhein-Westfalen, Deutschland · Abfrage: {ted_result['query']} · "
-        f"Bereich: ACTIVE · Zurückgegeben: {ted_result['returned']} · "
-        f"Gesamt laut API: {ted_result['total']}"
-    )
-    if ted_result["notices"]:
-        st.markdown("### Ausschreibungen im Überblick")
-        overview_rows = []
-        for notice in ted_result["notices"]:
-            completeness = notice.get("completeness") or {}
-            present = completeness.get("present", 0)
-            total = max(1, completeness.get("total", 1))
-            estimated_value = notice.get("estimated_value") or ""
-            estimated_currency = notice.get("estimated_value_currency") or ""
-            overview_rows.append({
-                "Ausschreibung": notice.get("title") or "Ohne Titel",
-                "Vergabenummer": notice.get("publication_number") or "Nicht angegeben",
-                "Stadt / Leistungsort": notice.get("location") or "Nicht angegeben",
-                "Auftraggeber": notice.get("buyer") or "Nicht veröffentlicht",
-                "Angebotsfrist": notice.get("deadline") or "Nicht angegeben",
-                "Auftragswert": (
-                    f"{estimated_value} {estimated_currency}".strip()
-                    if estimated_value else "Nicht veröffentlicht"
-                ),
-                "Informationsstand": f"{present}/{total} Felder",
-            })
-        st.dataframe(
-            overview_rows,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Ausschreibung": st.column_config.TextColumn("Ausschreibung", width="large"),
-                "Stadt / Leistungsort": st.column_config.TextColumn("Stadt / Leistungsort", width="medium"),
-                "Auftraggeber": st.column_config.TextColumn("Auftraggeber", width="medium"),
-            },
-        )
-        st.caption(
-            "Die Tabelle ist die Kurzübersicht. Öffne darunter eine Ausschreibung "
-            "für Kontaktdaten, Bedingungen, Unterlagen und weitere Details. "
-            "„Informationsstand“ misst Datenvollständigkeit, nicht Zuschlagschancen."
-        )
-        for notice in ted_result["notices"]:
-            heading = notice.get("title", "")
-            if notice.get("publication_number", ""):
-                heading += f" · {notice.get("publication_number", "")}"
-            with st.expander(heading):
-                st.markdown("#### Auftraggeber und Kontakt")
-                st.write(f"**Auftraggeber:** {notice.get("buyer", "") or 'Nicht veröffentlicht'}")
-                st.write(f"**Kontaktstelle:** {notice.get("contact_point", "") or 'Nicht veröffentlicht'}")
-                st.write(f"**Kontaktperson:** {notice.get("contact_person", "") or 'Nicht veröffentlicht'}")
-                st.write(f"**E-Mail:** {notice.get("email", "") or 'Nicht veröffentlicht'}")
-                st.write(f"**Telefon:** {notice.get("phone", "") or 'Nicht veröffentlicht'}")
-                buyer_address = " ".join(part for part in (
-                    notice.get("buyer_street", ""),
-                    notice.get("buyer_postcode", ""),
-                    notice.get("buyer_city", ""),
-                ) if part).strip()
-                contact_address = " ".join(part for part in (
-                    notice.get("contact_street", ""),
-                    notice.get("contact_postcode", ""),
-                    notice.get("contact_city", "") or notice.get("buyer_city", ""),
-                ) if part).strip()
-                st.write(f"**Anschrift Auftraggeber:** {buyer_address or 'Nicht veröffentlicht'}")
-                if contact_address and contact_address != buyer_address:
-                    st.write(f"**Anschrift Kontaktstelle:** {contact_address}")
-                if (notice.get("buyer_website") or "").startswith(("https://", "http://")):
-                    st.markdown(f"[Website des Auftraggebers]({notice.get("buyer_website", "")})")
-                st.markdown("#### Leistungs- und Vergabedetails")
-                st.write(f"**Ort der Leistung:** {notice.get("location", "") or 'Nicht angegeben'}")
-                st.write(f"**Beschreibung:** {notice.get("description", "") or 'Nicht in TED-Suchdaten enthalten'}")
-                st.write(f"**CPV-Code:** {notice.get("cpv", "") or 'Nicht angegeben'}")
-                st.write(f"**Verfahrensart:** {notice.get("procedure_type", "") or 'Nicht angegeben'}")
-                st.write(f"**Geschätzter Auftragswert:** {notice.get("estimated_value", "") or 'Nicht veröffentlicht'} {notice.get("estimated_value_currency", "") or ''}".strip())
-                st.write(f"**Laufzeit:** {notice.get("contract_duration", "") or 'Nicht angegeben'}")
-                st.write(f"**Veröffentlichung:** {notice.get("publication_date", "") or 'Nicht angegeben'}")
-                st.write(f"**Angebotsfrist:** {notice.get("deadline", "") or 'Nicht angegeben'}")
-                st.markdown("#### Teilnahmebedingungen und Bewertung")
-                st.write(f"**Eignungskriterien:** {notice.get("selection_criteria", "") or 'Originalunterlagen prüfen'}")
-                st.write(f"**Ausschlussgründe:** {notice.get("exclusion_criteria", "") or 'Originalunterlagen prüfen'}")
-                st.write(f"**Zuschlagskriterien:** {notice.get("award_criteria", "") or 'Originalunterlagen prüfen'}")
-                st.write(f"**Gewichtung:** {notice.get("award_weights", "") or 'Nicht angegeben'}")
-                st.markdown("#### Unterlagen und Angebotsabgabe")
-                if (notice.get("documents_url") or "").startswith(("https://", "http://")):
-                    st.markdown(f"[Vergabeunterlagen öffnen]({notice.get("documents_url", "")})")
-                else:
-                    st.write("**Vergabeunterlagen:** Link nicht vorhanden")
-                if (notice.get("submission_url") or "").startswith(("https://", "http://")):
-                    st.markdown(f"[Einreichungsportal öffnen]({notice.get("submission_url", "")})")
-                else:
-                    st.write("**Einreichungsportal:** Nicht angegeben")
-                completeness = notice.get("completeness") or {"present": 0, "total": 1}
-                completeness_total = max(1, completeness.get("total", 1))
-                completeness_present = completeness.get("present", 0)
-                st.progress(min(1.0, completeness_present / completeness_total))
-                st.caption(f"Informationsabdeckung: {completeness_present} von {completeness_total} Prüffeldern. Keine Erfolgswahrscheinlichkeit.")
-                if (notice.get("url") or "").startswith("https://ted.europa.eu/"):
-                    st.markdown(f"[Originalbekanntmachung bei TED öffnen]({notice.get("url", "")})")
-                st.warning(notice.get("evidence_note", ""))
-    else:
-        st.info(
-            "Für dieses Suchgebiet wurden keine aktiven Bekanntmachungen "
-            "zurückgegeben. Das bedeutet nicht, dass es keine privaten "
-            "Reinigungsaufträge oder andere Beschaffungsbedarfe gibt."
-        )
-
-if not os.environ.get("NOTION_TOKEN"):
-    st.error(
-        "NOTION_TOKEN fehlt. Bitte in Streamlit unter "
-        "Manage app → Settings → Secrets als NOTION_TOKEN hinterlegen. "
-        "Das Token niemals in den Quellcode eintragen."
-    )
-    st.stop()
-
-if st.button("Leads aus Notion laden und analysieren", type="primary"):
-    try:
-        with st.spinner("Lese Leads aus Notion ..."):
-            pages = query_leads()
-            assessments, skipped = analyze_pages(pages)
-            fields_by_company = {}
-            for page in pages:
-                fields = extract_fields(page)
-                company = fields.get("Unternehmen", "").strip()
-                if company:
-                    fields_by_company[company] = fields
-
-        st.session_state["assessments"] = assessments
-        st.session_state["skipped"] = skipped
-        st.session_state["fields_by_company"] = fields_by_company
-        st.success("Analyse abgeschlossen. Notion wurde nicht verändert.")
-    except NotionAPIError as exc:
-        st.error(f"Notion-Abfrage fehlgeschlagen: {exc}")
-    except Exception as exc:
-        st.error(
-            "Unerwarteter Fehler beim Laden der Leads "
-            f"({type(exc).__name__}). Bitte Konfiguration und Logs prüfen."
-        )
-
-assessments = st.session_state.get("assessments")
-if assessments is None:
-    st.markdown("Starte die Analyse, um deine vorhandenen Leads anzuzeigen.")
-    st.stop()
-
-fields_by_company = st.session_state.get("fields_by_company", {})
-skipped = st.session_state.get("skipped", 0)
-average_score = (
-    sum(item["score"] for item in assessments) / len(assessments)
-    if assessments
-    else 0
-)
-
-metric_a, metric_b, metric_c = st.columns(3)
-metric_a.metric("Analysierte Leads", len(assessments))
-metric_b.metric("Leere Datensätze übersprungen", skipped)
-metric_c.metric("Durchschnittlicher Score", f"{average_score:.1f} / 5")
-
-labels = {
-    "verified_company_location": "Unternehmen und Standort belegt",
-    "service_fit": "Passung zur Reinigungsleistung",
-    "documented_cleaning_need": "Reinigungsbedarf dokumentiert",
-    "relevant_contact_role": "Zuständige Kontaktrolle identifiziert",
-    "documented_procurement_path": "Beschaffungsweg dokumentiert",
-}
-
-search = st.text_input("Unternehmen oder Stadt suchen")
-potentials = ["Hoch", "Mittel", "Niedrig"]
-selected_potentials = st.multiselect(
-    "Potenzial filtern",
-    options=potentials,
-    default=potentials,
-)
-
-visible_items = []
-for item in assessments:
-    fields = fields_by_company.get(item["company"], {})
-    city = fields.get("Stadt", "")
-    if item["potential"] not in selected_potentials:
-        continue
-    searchable = f'{item["company"]} {city}'.casefold()
-    if search and search.casefold() not in searchable:
-        continue
-    visible_items.append((item, fields))
-
-visible_items.sort(key=lambda pair: pair[0]["score"], reverse=True)
-
-st.markdown("### Lead-Übersicht")
-table_rows = [
-    {
-        "Unternehmen": item["company"],
-        "Score": f'{item["score"]}/5',
-        "Potenzial": item["potential"],
-        "Stadt": fields.get("Stadt", ""),
-        "Branche": fields.get("Branche", ""),
-        "Fehlende Nachweise": ", ".join(
-            labels.get(key, key) for key in item["missing_evidence"]
-        ),
-    }
-    for item, fields in visible_items
+CUSTOMER_COLUMNS = [
+    "Unternehmen", "Branche / Einrichtung", "Stadt", "PLZ", "Adresse",
+    "Telefon", "E-Mail", "Website", "Reinigungsbedarf", "Security-Bedarf",
+    "Quelle", "Quellenlink", "Prüfdatum", "Datenstatus", "Notizen",
+]
+PROVIDER_COLUMNS = [
+    "Unternehmen", "Dienstleistung", "Stadt", "PLZ", "Adresse",
+    "Telefon", "E-Mail", "Website", "Einsatzgebiet", "Zertifikate / Erlaubnisse",
+    "Quelle", "Quellenlink", "Prüfdatum", "Datenstatus", "Notizen",
 ]
 
-if table_rows:
-    st.dataframe(table_rows, use_container_width=True, hide_index=True)
-else:
-    st.write("Keine Leads für diese Filter gefunden.")
+st.title("📒 ReinigungsRadar NRW")
+st.caption("Zwei getrennte Firmenverzeichnisse · ausschließlich Nordrhein-Westfalen")
+st.info(
+    "Interner MVP mit read-only Notion-Anbindung. Keine automatische Kontaktaufnahme "
+    "und keine Änderung an Notion-Datensätzen."
+)
+st.warning(
+    "Vor der Nutzung mit echten personenbezogenen Daten müssen Zugriffsschutz, "
+    "Mandantentrennung und Datenschutzprüfung abgeschlossen sein. Öffentliche "
+    "Kontaktdaten sind keine Einwilligung für Werbeansprache."
+)
 
-st.markdown("### Details")
-for item, fields in visible_items:
-    with st.expander(
-        f'{item["company"]} · {item["score"]}/5 · {item["potential"]}'
-    ):
-        for key, proven in item["evidence"].items():
-            icon = "✅" if proven else "⬜"
-            st.write(f'{icon} {labels.get(key, key)}')
+with st.sidebar:
+    st.header("Filter")
+    st.text_input("Bundesland", value="Nordrhein-Westfalen (NRW)", disabled=True)
+    city_filter = st.text_input("Stadt enthält", placeholder="z. B. Viersen")
+    category_filter = st.text_input("Branche / Dienstleistung enthält")
+    search_text = st.text_input("Freitextsuche", placeholder="Firma, Ort, Website …")
 
-        if item["missing_evidence"]:
-            missing_labels = [
-                labels.get(key, key) for key in item["missing_evidence"]
-            ]
-            st.write("Noch zu prüfen: " + ", ".join(missing_labels))
+def property_text(prop):
+    if not isinstance(prop, dict):
+        return str(prop).strip() if prop is not None else ""
+    for key in ("title", "rich_text", "multi_select"):
+        items = prop.get(key)
+        if isinstance(items, list):
+            parts = []
+            for item in items:
+                if isinstance(item, dict):
+                    parts.append(str(item.get("plain_text") or item.get("name") or ""))
+            return "; ".join(part for part in parts if part)
+    for key in ("url", "email", "phone_number", "number"):
+        if prop.get(key) is not None:
+            return str(prop[key]).strip()
+    for key in ("select", "status"):
+        selected = prop.get(key)
+        if isinstance(selected, dict):
+            return str(selected.get("name") or "")
+    return ""
 
-        website = fields.get("Website", "")
-        source_url = fields.get("Quellenlink", "")
-        if website:
-            st.markdown(f"[Website öffnen]({website})")
-        if source_url:
-            st.markdown(f"[Quelle öffnen]({source_url})")
+def pages_to_rows(pages):
+    rows = []
+    for page in pages:
+        props = page.get("properties", {})
+        row = {name: property_text(value) for name, value in props.items()}
+        if row.get("Unternehmen", "").strip():
+            rows.append(row)
+    return rows
 
-        st.caption(item["note"])
+def complete_rows(rows, columns):
+    result = []
+    for row in rows:
+        result.append({column: str(row.get(column) or "") for column in columns})
+    return result
+
+def filter_rows(rows, columns, category_column):
+    filtered = []
+    for row in rows:
+        if city_filter and city_filter.casefold() not in row.get("Stadt", "").casefold():
+            continue
+        if category_filter and category_filter.casefold() not in row.get(category_column, "").casefold():
+            continue
+        if search_text and not any(search_text.casefold() in str(value).casefold() for value in row.values()):
+            continue
+        filtered.append(row)
+    return filtered
+
+def csv_bytes(rows, columns):
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue().encode("utf-8-sig")
+
+if st.button("Beide Verzeichnisse laden", type="primary"):
+    token = os.environ.get("NOTION_TOKEN", "").strip()
+    customer_id = os.environ.get("NOTION_DATA_SOURCE_ID", "").strip()
+    provider_id = os.environ.get("PROVIDER_DATA_SOURCE_ID", "").strip()
+    if not token:
+        st.error("NOTION_TOKEN fehlt. Bitte als geschütztes Streamlit Secret hinterlegen.")
+    elif not customer_id:
+        st.error("NOTION_DATA_SOURCE_ID fehlt. Das Kundenverzeichnis ist noch nicht verbunden.")
+    else:
+        try:
+            with st.spinner("Lese getrennte NRW-Verzeichnisse aus Notion …"):
+                customer_pages = query_data_source(customer_id)
+                provider_pages = query_data_source(provider_id) if provider_id else []
+            st.session_state["customer_rows"] = pages_to_rows(customer_pages)
+            st.session_state["provider_rows"] = pages_to_rows(provider_pages)
+            st.success("Ladevorgang abgeschlossen. Notion wurde nicht verändert.")
+        except NotionAPIError as exc:
+            st.error(f"Notion konnte nicht gelesen werden: {exc}")
+
+customer_rows = st.session_state.get("customer_rows", [])
+provider_rows = st.session_state.get("provider_rows", [])
+customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
+provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
+
+customer_tab, provider_tab, setup_tab = st.tabs([
+    "🏢 Kundenverzeichnis", "🛡️ Anbieter-Verzeichnis", "⚙️ Datenquellen"
+])
+
+with customer_tab:
+    st.subheader("Private Unternehmen mit möglichem Bedarf")
+    st.caption(
+        "Büros, Industrie, Handel, Hotels, Gastronomie, private Gesundheitsunternehmen, "
+        "Immobilienverwaltung und weitere private Einrichtungen."
+    )
+    visible = filter_rows(customer_rows, CUSTOMER_COLUMNS, "Branche / Einrichtung")
+    st.metric("Kunden-Datensätze", len(customer_rows))
+    st.dataframe(visible, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Kundenverzeichnis als CSV exportieren",
+        data=csv_bytes(visible, CUSTOMER_COLUMNS),
+        file_name="reinigungsradar_nrw_kunden.csv",
+        mime="text/csv",
+        disabled=not visible,
+    )
+    if not os.environ.get("NOTION_DATA_SOURCE_ID"):
+        st.warning("NOTION_DATA_SOURCE_ID ist nicht konfiguriert.")
+
+with provider_tab:
+    st.subheader("Anbieter für Reinigung und Security")
+    st.caption("Eigenständiges Verzeichnis für Dienstleister, mögliche Partner und Marktübersicht.")
+    visible = filter_rows(provider_rows, PROVIDER_COLUMNS, "Dienstleistung")
+    st.metric("Anbieter-Datensätze", len(provider_rows))
+    st.dataframe(visible, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Anbieter-Verzeichnis als CSV exportieren",
+        data=csv_bytes(visible, PROVIDER_COLUMNS),
+        file_name="reinigungsradar_nrw_anbieter.csv",
+        mime="text/csv",
+        disabled=not visible,
+    )
+    if not os.environ.get("PROVIDER_DATA_SOURCE_ID"):
+        st.warning(
+            "PROVIDER_DATA_SOURCE_ID fehlt. Das Anbieter-Verzeichnis ist noch nicht "
+            "mit einer eigenen Notion-Datenbank verbunden."
+        )
+
+with setup_tab:
+    st.subheader("Getrennte Notion-Datenbanken")
+    st.markdown(
+        "**Kundenverzeichnis**\n"
+        "- Secret: `NOTION_DATA_SOURCE_ID`\n"
+        "- Zusatzfelder: Branche / Einrichtung, Reinigungsbedarf, Security-Bedarf\n\n"
+        "**Anbieter-Verzeichnis**\n"
+        "- Secret: `PROVIDER_DATA_SOURCE_ID`\n"
+        "- Zusatzfelder: Dienstleistung, Einsatzgebiet, Zertifikate / Erlaubnisse\n\n"
+        "**Gemeinsame Felder**\n"
+        "- Unternehmen, Stadt, PLZ, Adresse, Telefon, E-Mail, Website, Quelle, Quellenlink, Prüfdatum, Datenstatus, Notizen."
+    )
+    st.info(
+        "Die App liest beide Datenquellen getrennt. Sie legt keine Notion-Datenbank "
+        "automatisch an und erfindet keine Firmen oder Kontaktdaten. Für eine "
+        "zuverlässige NRW-Zuordnung müssen Ort/PLZ und Quelle geprüft sein."
+    )
 
 st.caption(
-    "ReinigungsRadar · Read-only-Prototyp · Keine automatische Kontaktaufnahme."
+    "ReinigungsRadar NRW · Kunden und Anbieter strikt getrennt · "
+    "keine Ausschreibungssuche · keine automatische Kontaktaufnahme."
 )
