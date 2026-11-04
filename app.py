@@ -132,7 +132,7 @@ if ted_result:
                 contact_address = " ".join(part for part in (
                     notice.get("contact_street", ""),
                     notice.get("contact_postcode", ""),
-                    notice.get("buyer_city", ""),
+                    notice.get("contact_city", "") or notice.get("buyer_city", ""),
                 ) if part).strip()
                 st.write(f"**Anschrift Auftraggeber:** {buyer_address or 'Nicht veröffentlicht'}")
                 if contact_address and contact_address != buyer_address:
