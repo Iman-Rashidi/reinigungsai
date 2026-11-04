@@ -204,7 +204,7 @@ def analyze_company_needs(row: dict) -> dict:
     candidates = []
     evidence_level = "Branchenbasierte Hypothese"
     if explicit_cleaning:
-        candidates.extend(("Reinigung", item.strip()) for item in re.split(r"[;,\\n]+", explicit_cleaning) if item.strip())
+        candidates.extend(("Reinigung", item.strip()) for item in re.split(r"[;,\n]+", explicit_cleaning) if item.strip())
         evidence_level = "Bedarf im Datensatz hinterlegt · Beleg prüfen"
     if explicit_security:
         candidates.extend(("Sicherheit", item.strip()) for item in re.split(r"[;,\\n]+", explicit_security) if item.strip())
