@@ -78,6 +78,38 @@ if ted_result:
         f"Gesamt laut API: {ted_result['total']}"
     )
     if ted_result["notices"]:
+        st.markdown("### Ausschreibungen im Überblick")
+        overview_rows = []
+        for notice in ted_result["notices"]:
+            overview_rows.append({
+                "Ausschreibung": notice["title"],
+                "Vergabenummer": notice["publication_number"] or "Nicht angegeben",
+                "Stadt / Leistungsort": notice["location"] or "Nicht angegeben",
+                "Auftraggeber": notice["buyer"] or "Nicht veröffentlicht",
+                "Angebotsfrist": notice["deadline"] or "Nicht angegeben",
+                "Auftragswert": (
+                    f"{notice['estimated_value']} {notice['estimated_value_currency']}".strip()
+                    if notice["estimated_value"] else "Nicht veröffentlicht"
+                ),
+                "Informationsstand": (
+                    f"{notice['completeness']['present']}/{notice['completeness']['total']} Felder"
+                ),
+            })
+        st.dataframe(
+            overview_rows,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Ausschreibung": st.column_config.TextColumn("Ausschreibung", width="large"),
+                "Stadt / Leistungsort": st.column_config.TextColumn("Stadt / Leistungsort", width="medium"),
+                "Auftraggeber": st.column_config.TextColumn("Auftraggeber", width="medium"),
+            },
+        )
+        st.caption(
+            "Die Tabelle ist die Kurzübersicht. Öffne darunter eine Ausschreibung "
+            "für Kontaktdaten, Bedingungen, Unterlagen und weitere Details. "
+            "„Informationsstand“ misst Datenvollständigkeit, nicht Zuschlagschancen."
+        )
         for notice in ted_result["notices"]:
             heading = notice["title"]
             if notice["publication_number"]:
