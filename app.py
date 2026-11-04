@@ -111,7 +111,7 @@ def csv_bytes(rows, columns):
 
 if st.button("Beide Verzeichnisse laden", type="primary"):
     token = os.environ.get("NOTION_TOKEN", "").strip()
-    customer_id = os.environ.get("NOTION_DATA_SOURCE_ID", DEFAULT_DATA_SOURCE_ID).strip()
+    customer_id = (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip()
     provider_id = os.environ.get("PROVIDER_DATA_SOURCE_ID", "").strip()
     if not token:
         st.error("NOTION_TOKEN fehlt. Bitte als geschütztes Streamlit Secret hinterlegen.")
@@ -153,7 +153,7 @@ with customer_tab:
         mime="text/csv",
         disabled=not visible,
     )
-    if not os.environ.get("NOTION_DATA_SOURCE_ID", DEFAULT_DATA_SOURCE_ID).strip():
+    if not (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip():
         st.warning("NOTION_DATA_SOURCE_ID ist nicht konfiguriert.")
 
 with provider_tab:
