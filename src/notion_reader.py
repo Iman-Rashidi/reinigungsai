@@ -1,4 +1,4 @@
-"""Read-only Notion data-source client for the ReinigungsAI prototype.
+"""Read-only Notion data-source client.
 
 This module never creates, updates, or deletes Notion content.
 Credentials are read only from environment variables.
@@ -17,25 +17,15 @@ class NotionAPIError(RuntimeError):
     """Raised when the Notion API request fails."""
 
 
-def extract_title(page: dict) -> str:
-    """Return the first title property's plain text without exposing other fields."""
-    properties = page.get("properties", {})
-    for prop in properties.values():
-        title_items = prop.get("title") if isinstance(prop, dict) else None
-        if title_items is not None:
-            return "".join(item.get("plain_text", "") for item in title_items)
-    return ""
-
-
-def query_leads(page_size: int = 100, max_pages: int = 10) -> list[dict]:
-    """Read lead rows from Notion. Pagination is bounded to avoid unbounded runs."""
+def query_data_source(data_source_id: str, page_size: int = 100, max_pages: int = 10) -> list[dict]:
+    """Read rows from the specified Notion data source, with bounded pagination."""
     token = os.environ.get("NOTION_TOKEN", "").strip()
-    data_source_id = os.environ.get("NOTION_DATA_SOURCE_ID", DEFAULT_DATA_SOURCE_ID).strip()
     notion_version = os.environ.get("NOTION_VERSION", DEFAULT_NOTION_VERSION).strip()
+    data_source_id = (data_source_id or "").strip()
     if not token:
         raise NotionAPIError("NOTION_TOKEN is not configured. Add it as a protected environment secret.")
     if not data_source_id:
-        raise NotionAPIError("NOTION_DATA_SOURCE_ID is not configured.")
+        raise NotionAPIError("A Notion data source ID is not configured.")
 
     url = f"{API_BASE}/data_sources/{data_source_id}/query"
     headers = {
@@ -50,12 +40,7 @@ def query_leads(page_size: int = 100, max_pages: int = 10) -> list[dict]:
         payload = {"page_size": max(1, min(page_size, 100))}
         if cursor:
             payload["start_cursor"] = cursor
-        request = Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
+        request = Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
         try:
             with urlopen(request, timeout=20) as response:
                 data = json.loads(response.read().decode("utf-8"))
@@ -73,6 +58,12 @@ def query_leads(page_size: int = 100, max_pages: int = 10) -> list[dict]:
         if not cursor:
             break
     return results
+
+
+def query_leads(page_size: int = 100, max_pages: int = 10) -> list[dict]:
+    """Backward-compatible reader for the original customer-lead data source."""
+    data_source_id = os.environ.get("NOTION_DATA_SOURCE_ID", DEFAULT_DATA_SOURCE_ID).strip()
+    return query_data_source(data_source_id, page_size=page_size, max_pages=max_pages)
 
 
 def main() -> None:
