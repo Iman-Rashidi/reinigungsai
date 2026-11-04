@@ -81,19 +81,22 @@ if ted_result:
         st.markdown("### Ausschreibungen im Überblick")
         overview_rows = []
         for notice in ted_result["notices"]:
+            completeness = notice.get("completeness") or {}
+            present = completeness.get("present", 0)
+            total = max(1, completeness.get("total", 1))
+            estimated_value = notice.get("estimated_value") or ""
+            estimated_currency = notice.get("estimated_value_currency") or ""
             overview_rows.append({
-                "Ausschreibung": notice.get("title", ""),
-                "Vergabenummer": notice.get("publication_number", "") or "Nicht angegeben",
-                "Stadt / Leistungsort": notice.get("location", "") or "Nicht angegeben",
-                "Auftraggeber": notice.get("buyer", "") or "Nicht veröffentlicht",
-                "Angebotsfrist": notice.get("deadline", "") or "Nicht angegeben",
+                "Ausschreibung": notice.get("title") or "Ohne Titel",
+                "Vergabenummer": notice.get("publication_number") or "Nicht angegeben",
+                "Stadt / Leistungsort": notice.get("location") or "Nicht angegeben",
+                "Auftraggeber": notice.get("buyer") or "Nicht veröffentlicht",
+                "Angebotsfrist": notice.get("deadline") or "Nicht angegeben",
                 "Auftragswert": (
-                    f"{notice.get("estimated_value", "")} {notice.get("estimated_value_currency", "")}".strip()
-                    if notice.get("estimated_value") else "Nicht veröffentlicht"
+                    f"{estimated_value} {estimated_currency}".strip()
+                    if estimated_value else "Nicht veröffentlicht"
                 ),
-                "Informationsstand": (
-                    f"{notice.get("completeness", "")['present']}/{notice.get("completeness", "")['total']} Felder"
-                ),
+                "Informationsstand": f"{present}/{total} Felder",
             })
         st.dataframe(
             overview_rows,
@@ -148,8 +151,10 @@ if ted_result:
                 else:
                     st.write("**Einreichungsportal:** Nicht angegeben")
                 completeness = notice.get("completeness") or {"present": 0, "total": 1}
-                st.progress(completeness["present"] / completeness["total"])
-                st.caption(f"Informationsabdeckung: {completeness['present']} von {completeness['total']} Prüffeldern. Keine Erfolgswahrscheinlichkeit.")
+                completeness_total = max(1, completeness.get("total", 1))
+                completeness_present = completeness.get("present", 0)
+                st.progress(min(1.0, completeness_present / completeness_total))
+                st.caption(f"Informationsabdeckung: {completeness_present} von {completeness_total} Prüffeldern. Keine Erfolgswahrscheinlichkeit.")
                 if (notice.get("url") or "").startswith("https://ted.europa.eu/"):
                     st.markdown(f"[Originalbekanntmachung bei TED öffnen]({notice.get("url", "")})")
                 st.warning(notice.get("evidence_note", ""))
