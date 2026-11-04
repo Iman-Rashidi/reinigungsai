@@ -156,6 +156,7 @@ def _normalise_notice(item: dict) -> dict:
         "buyer_website": first_text("buyer-internet-address"),
         "contact_street": first_text("touchpoint-street-buyer"),
         "contact_postcode": first_text("buyer-touchpoint-post-code"),
+        "contact_city": first_text("buyer-touchpoint-city"),
         "contact_website": first_text("buyer-touchpoint-internet-address"),
         "description": first_text("description-proc"),
         "selection_criteria": first_text("selection-criterion-name-lot", "selection-criterion-description-lot"),
