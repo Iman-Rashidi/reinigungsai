@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 API_BASE = "https://api.notion.com/v1"
 DEFAULT_DATA_SOURCE_ID = "e8e0c29f-db71-4908-8344-23d10a5269ec"
+DEFAULT_PROVIDER_DATA_SOURCE_ID = "78e8e33b-4989-41d7-a4bf-da76ea11271d"
 DEFAULT_NOTION_VERSION = "2026-03-11"
 
 
@@ -77,8 +78,19 @@ def query_leads(page_size: int = 100, max_pages: int = 10) -> list[dict]:
 
 
 def main() -> None:
-    leads = query_leads()
-    print(f"Read-only Notion check completed: {len(leads)} lead record(s) retrieved.")
+    customer_id = os.environ.get("NOTION_DATA_SOURCE_ID", DEFAULT_DATA_SOURCE_ID).strip()
+    provider_id = os.environ.get(
+        "PROVIDER_DATA_SOURCE_ID", DEFAULT_PROVIDER_DATA_SOURCE_ID
+    ).strip()
+
+    customer_pages = query_data_source(customer_id)
+    provider_pages = query_data_source(provider_id)
+
+    print(
+        "Read-only Notion check completed: "
+        f"{len(customer_pages)} customer record(s), "
+        f"{len(provider_pages)} provider record(s) retrieved."
+    )
     print("No Notion records were changed.")
 
 
