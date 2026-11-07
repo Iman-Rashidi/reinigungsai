@@ -11,6 +11,14 @@ class StreamlitAppTests(unittest.TestCase):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
         ast.parse(source, filename="app.py")
 
+
+    def test_ted_dashboard_uses_the_nrw_active_notice_search(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn("Ausschreibungen (TED)", source)
+        self.assertIn("search_active_notices(", source)
+        self.assertIn('region="NRW"', source)
+        self.assertIn("keine automatische Kontaktaufnahme oder Angebotsabgabe", source)
+
     def test_streamlit_requirement_is_not_html_escaped(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("streamlit>=1.40,<2.0", requirements)

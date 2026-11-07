@@ -21,6 +21,7 @@ from directory_data import (
     filter_rows,
     pages_to_rows,
 )
+from src.ted_search import TEDSearchError, search_active_notices
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
@@ -146,8 +147,11 @@ provider_rows = st.session_state.get("provider_rows", [])
 customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
 provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
 
-customer_tab, provider_tab, setup_tab = st.tabs([
-    "🏢 Kundenverzeichnis", "🛡️ Anbieter-Verzeichnis", "⚙️ Datenquellen"
+customer_tab, provider_tab, tender_tab, setup_tab = st.tabs([
+    "🏢 Kundenverzeichnis",
+    "🛡️ Anbieter-Verzeichnis",
+    "📄 Ausschreibungen (TED)",
+    "⚙️ Datenquellen",
 ])
 
 with customer_tab:
@@ -192,6 +196,132 @@ with provider_tab:
             "mit einer eigenen Notion-Datenbank verbunden."
         )
 
+with tender_tab:
+    st.subheader("Aktive öffentliche Ausschreibungen in NRW")
+    st.caption(
+        "Quelle: TED – Tenders Electronic Daily. Suche nach aktiven Bekanntmachungen "
+        "mit Leistungsort Nordrhein-Westfalen (NUTS-1-Code DEA)."
+    )
+    st.warning(
+        "Dieser Suchlauf deckt nur TED ab. Vergabe.NRW, DTVP, service.bund.de "
+        "und andere nationale Portale sind noch nicht angebunden. "
+        "Eine TED-Bekanntmachung ist keine automatische Eignungs- oder Zuschlagsaussage."
+    )
+
+    with st.form("ted_tender_search"):
+        tender_keyword = st.text_input(
+            "Suchbegriff",
+            value="Gebäudereinigung",
+            max_chars=100,
+            help="Zum Beispiel Gebäudereinigung, Unterhaltsreinigung oder Sicherheitsdienst.",
+        )
+        tender_limit = st.number_input(
+            "Maximale Treffer",
+            min_value=5,
+            max_value=100,
+            value=25,
+            step=5,
+        )
+        tender_submitted = st.form_submit_button(
+            "Aktive TED-Ausschreibungen suchen",
+            type="primary",
+        )
+
+    if tender_submitted:
+        st.session_state["ted_notices"] = []
+        st.session_state["ted_search_error"] = ""
+        st.session_state["ted_search_ran"] = True
+        try:
+            with st.spinner("Suche aktive TED-Bekanntmachungen für NRW …"):
+                ted_result = search_active_notices(
+                    tender_keyword,
+                    limit=int(tender_limit),
+                    region="NRW",
+                )
+            st.session_state["ted_notices"] = ted_result["notices"]
+            st.session_state["ted_total"] = ted_result["total"]
+            st.session_state["ted_query"] = ted_result["query"]
+        except (TEDSearchError, ValueError) as exc:
+            st.session_state["ted_search_error"] = str(exc)
+
+    ted_error = st.session_state.get("ted_search_error", "")
+    ted_notices = st.session_state.get("ted_notices", [])
+    if ted_error:
+        st.error(f"TED-Suche fehlgeschlagen: {ted_error}")
+    elif ted_notices:
+        st.success(
+            f"{len(ted_notices)} Treffer geladen. "
+            f"TED meldet insgesamt {st.session_state.get('ted_total', len(ted_notices))} passende aktive Bekanntmachungen."
+        )
+        for notice in ted_notices:
+            publication_number = notice.get("publication_number") or "Ohne Veröffentlichungsnummer"
+            title = notice.get("title") or "Ohne Titel"
+            with st.expander(f"{publication_number} · {title}"):
+                meta_cols = st.columns(3)
+                meta_cols[0].caption("Auftraggeber")
+                meta_cols[0].write(notice.get("buyer") or "Nicht angegeben")
+                meta_cols[1].caption("Veröffentlicht")
+                meta_cols[1].write(notice.get("publication_date") or "Nicht angegeben")
+                meta_cols[2].caption("Frist")
+                meta_cols[2].write(notice.get("deadline") or "Nicht angegeben")
+
+                if notice.get("location"):
+                    st.write(f"**Leistungsort:** {notice['location']}")
+                if notice.get("description"):
+                    st.markdown("**Leistungsbeschreibung**")
+                    st.write(notice["description"])
+                if notice.get("estimated_value"):
+                    currency = notice.get("estimated_value_currency") or ""
+                    st.write(f"**Geschätzter Auftragswert:** {notice['estimated_value']} {currency}".strip())
+                if notice.get("cpv"):
+                    st.write(f"**CPV:** {notice['cpv']}")
+                if notice.get("procedure_type"):
+                    st.write(f"**Verfahren:** {notice['procedure_type']}")
+
+                if notice.get("selection_criteria"):
+                    st.markdown("**Eignungskriterien**")
+                    st.write(notice["selection_criteria"])
+                if notice.get("exclusion_criteria"):
+                    st.markdown("**Ausschlussgründe**")
+                    st.write(notice["exclusion_criteria"])
+                if notice.get("award_criteria"):
+                    st.markdown("**Zuschlagskriterien**")
+                    st.write(notice["award_criteria"])
+                if notice.get("award_weights"):
+                    st.write(f"**Gewichtung:** {notice['award_weights']}")
+
+                contact_items = [
+                    ("Kontaktstelle", notice.get("contact_point")),
+                    ("Kontaktperson", notice.get("contact_person")),
+                    ("E-Mail", notice.get("email")),
+                    ("Telefon", notice.get("phone")),
+                ]
+                present_contacts = [(label, value) for label, value in contact_items if value]
+                if present_contacts:
+                    st.markdown("**Öffentliche Kontaktdaten der Vergabestelle**")
+                    for label, value in present_contacts:
+                        st.write(f"{label}: {value}")
+
+                link_cols = st.columns(3)
+                if notice.get("url", "").startswith("https://"):
+                    link_cols[0].link_button("TED-Bekanntmachung", notice["url"])
+                if notice.get("documents_url", "").startswith("https://"):
+                    link_cols[1].link_button("Vergabeunterlagen", notice["documents_url"])
+                if notice.get("submission_url", "").startswith("https://"):
+                    link_cols[2].link_button("Einreichungsportal", notice["submission_url"])
+
+                completeness = notice.get("completeness", {})
+                st.caption(
+                    f"Datenvollständigkeit: {completeness.get('present', 0)} von "
+                    f"{completeness.get('total', 0)} Prüffeldern. "
+                    "Fehlende Angaben stehen möglicherweise nur in den Originalunterlagen."
+                )
+                st.caption(notice.get("evidence_note", "Angaben anhand der Originalbekanntmachung prüfen."))
+    elif st.session_state.get("ted_search_ran"):
+        st.info("Für diesen Suchbegriff wurden in den aktiven TED-Bekanntmachungen keine Treffer zurückgegeben.")
+    else:
+        st.info("Suchbegriff eingeben und Suche starten. Es werden nur aktive Bekanntmachungen mit Leistungsort NRW abgefragt.")
+
 with setup_tab:
     st.subheader("Getrennte Notion-Datenbanken")
     st.markdown(
@@ -202,7 +332,9 @@ with setup_tab:
         "- Secret: `PROVIDER_DATA_SOURCE_ID`\n"
         "- Vorhandene Felder: Dienstleistung, Einsatzgebiet, Zertifikate / Erlaubnisse und Datenstatus.\n\n"
         "**Wichtiger Datenhinweis**\n"
-        "- Der vorhandene Kundenbestand ist ein Mönchengladbach-Pilot und noch keine vollständige NRW-Abdeckung."
+        "- Der vorhandene Kundenbestand ist ein Mönchengladbach-Pilot und noch keine vollständige NRW-Abdeckung.\n\n"
+        "**Ausschreibungen**\n"
+        "- Aktive TED-Bekanntmachungen mit Leistungsort NRW; weitere Vergabeportale sind noch nicht integriert."
     )
     st.info(
         "Die App liest beide Datenquellen unabhängig voneinander und nur lesend. "
@@ -213,6 +345,6 @@ with setup_tab:
     )
 
 st.caption(
-    "ReinigungsRadar NRW · Kunden und Anbieter strikt getrennt · "
-    "keine Ausschreibungssuche · keine automatische Kontaktaufnahme."
+    "ReinigungsRadar NRW · Kunden, Anbieter und TED-Ausschreibungen getrennt · "
+    "read-only · keine automatische Kontaktaufnahme oder Angebotsabgabe."
 )
