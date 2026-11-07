@@ -87,60 +87,6 @@ with st.sidebar:
     category_filter = st.text_input("Branche / Dienstleistung enthält")
     search_text = st.text_input("Freitextsuche", placeholder="Firma, Ort, Website …")
 
-def property_text(prop):
-    if not isinstance(prop, dict):
-        return str(prop).strip() if prop is not None else ""
-    for key in ("title", "rich_text", "multi_select"):
-        items = prop.get(key)
-        if isinstance(items, list):
-            parts = []
-            for item in items:
-                if isinstance(item, dict):
-                    parts.append(str(item.get("plain_text") or item.get("name") or ""))
-            return "; ".join(part for part in parts if part)
-    for key in ("url", "email", "phone_number", "number"):
-        if prop.get(key) is not None:
-            return str(prop[key]).strip()
-    for key in ("select", "status"):
-        selected = prop.get(key)
-        if isinstance(selected, dict):
-            return str(selected.get("name") or "")
-    return ""
-
-def pages_to_rows(pages):
-    rows = []
-    for page in pages:
-        props = page.get("properties", {})
-        row = {name: property_text(value) for name, value in props.items()}
-        if row.get("Unternehmen", "").strip():
-            rows.append(row)
-    return rows
-
-def complete_rows(rows, columns):
-    result = []
-    for row in rows:
-        result.append({column: str(row.get(column) or "") for column in columns})
-    return result
-
-def filter_rows(rows, columns, category_column):
-    filtered = []
-    for row in rows:
-        if city_filter and city_filter.casefold() not in row.get("Stadt", "").casefold():
-            continue
-        if category_filter and category_filter.casefold() not in row.get(category_column, "").casefold():
-            continue
-        if search_text and not any(search_text.casefold() in str(value).casefold() for value in row.values()):
-            continue
-        filtered.append(row)
-    return filtered
-
-def csv_bytes(rows, columns):
-    output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
-    return output.getvalue().encode("utf-8-sig")
-
 if st.button("Beide Verzeichnisse laden", type="primary"):
     token = os.environ.get("NOTION_TOKEN", "").strip()
     customer_id = (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip()
