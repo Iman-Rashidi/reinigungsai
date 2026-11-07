@@ -10,13 +10,15 @@ import csv
 import io
 import os
 
+from src.access_control import password_matches
+
 import streamlit as st
 
 from notion_reader import DEFAULT_DATA_SOURCE_ID, NotionAPIError, query_data_source
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
-for secret_name in ("NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
+for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
     if not os.environ.get(secret_name):
         try:
             value = st.secrets.get(secret_name)
@@ -24,6 +26,34 @@ for secret_name in ("NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOUR
             value = None
         if value:
             os.environ[secret_name] = str(value)
+
+
+# Fail closed: the public staging service must not expose the dashboard without
+# an explicitly configured shared access password.
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+AUTH_KEY = "reinigungsradar_authenticated"
+
+if not APP_PASSWORD:
+    st.title("📒 ReinigungsRadar NRW")
+    st.error(
+        "Dashboard gesperrt: Das geschützte Render-Secret APP_PASSWORD fehlt. "
+        "Bitte zuerst in Render als Secret konfigurieren."
+    )
+    st.stop()
+
+if not st.session_state.get(AUTH_KEY, False):
+    st.title("📒 ReinigungsRadar NRW")
+    st.caption("Geschützter Staging-Zugang")
+    with st.form("reinigungsradar_login"):
+        entered_password = st.text_input("Zugangspasswort", type="password")
+        login_submitted = st.form_submit_button("Anmelden")
+    if login_submitted:
+        if password_matches(entered_password, APP_PASSWORD):
+            st.session_state[AUTH_KEY] = True
+            st.rerun()
+        else:
+            st.error("Das Zugangspasswort ist nicht korrekt.")
+    st.stop()
 
 CUSTOMER_COLUMNS = [
     "Unternehmen", "Branche / Einrichtung", "Stadt", "PLZ", "Adresse",
@@ -43,12 +73,16 @@ st.info(
     "und keine Änderung an Notion-Datensätzen."
 )
 st.warning(
-    "Vor der Nutzung mit echten personenbezogenen Daten müssen Zugriffsschutz, "
-    "Mandantentrennung und Datenschutzprüfung abgeschlossen sein. Öffentliche "
-    "Kontaktdaten sind keine Einwilligung für Werbeansprache."
+    "APP_PASSWORD bietet nur einen gemeinsamen Staging-Zugang und ersetzt keine "
+    "produktive Benutzerverwaltung. Vor echten personenbezogenen Daten müssen "
+    "individuelle Zugriffe, Mandantentrennung und Datenschutz geprüft sein. "
+    "Öffentliche Kontaktdaten sind keine Einwilligung für Werbeansprache."
 )
 
 with st.sidebar:
+    if st.button("Abmelden"):
+        st.session_state[AUTH_KEY] = False
+        st.rerun()
     st.header("Filter")
     st.text_input("Bundesland", value="Nordrhein-Westfalen (NRW)", disabled=True)
     city_filter = st.text_input("Stadt enthält", placeholder="z. B. Viersen")
