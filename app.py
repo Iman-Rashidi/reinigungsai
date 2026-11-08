@@ -7,6 +7,7 @@ Read-only Notion integration. Separate data sources:
 from __future__ import annotations
 
 import os
+import re
 
 from src.access_control import password_matches
 
@@ -22,6 +23,13 @@ from directory_data import (
     pages_to_rows,
 )
 from src.ted_search import TEDSearchError, search_active_notices
+from src.company_search import (
+    CUSTOMER_CATEGORIES,
+    NRW_CITIES,
+    PROVIDER_CATEGORIES,
+    CompanySearchError,
+    search_companies,
+)
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
@@ -33,6 +41,12 @@ for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PR
             value = None
         if value:
             os.environ[secret_name] = str(value)
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def cached_company_search(city: str, mode: str, category: str, limit: int):
+    """Cache on-demand OpenStreetMap discovery results for six hours."""
+    return search_companies(city=city, mode=mode, category=category, limit=limit)
 
 
 # Fail closed: the public staging service must not expose the dashboard without
@@ -147,9 +161,10 @@ provider_rows = st.session_state.get("provider_rows", [])
 customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
 provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
 
-customer_tab, provider_tab, tender_tab, setup_tab = st.tabs([
+customer_tab, provider_tab, discovery_tab, tender_tab, setup_tab = st.tabs([
     "🏢 Kundenverzeichnis",
     "🛡️ Anbieter-Verzeichnis",
+    "🔎 Neue Firmen finden",
     "📄 Ausschreibungen (TED)",
     "⚙️ Datenquellen",
 ])
@@ -195,6 +210,129 @@ with provider_tab:
             "PROVIDER_DATA_SOURCE_ID fehlt. Das Anbieter-Verzeichnis ist noch nicht "
             "mit einer eigenen Notion-Datenbank verbunden."
         )
+
+
+with discovery_tab:
+    st.subheader("Neue Firmen in NRW finden")
+    st.caption(
+        "On-Demand-Suche nach öffentlichen Firmen- und Standort-Einträgen in OpenStreetMap. "
+        "Die Suche ergänzt den gespeicherten Notion-Bestand, ersetzt aber kein vollständiges Handelsregister."
+    )
+    st.info(
+        "Wähle eine NRW-Stadt und eine Branche. Die Suche fragt OpenStreetMap live ab, "
+        "zeigt Quelle und Prüfdatum und schreibt nichts nach Notion."
+    )
+
+    discovery_mode = st.radio(
+        "Gesucht werden",
+        ["Kunden", "Anbieter"],
+        horizontal=True,
+        key="discovery_mode",
+    )
+    category_options = (
+        list(CUSTOMER_CATEGORIES.keys())
+        if discovery_mode == "Kunden"
+        else list(PROVIDER_CATEGORIES.keys())
+    )
+    default_city_index = NRW_CITIES.index("Mönchengladbach")
+    with st.form("company_discovery_search"):
+        discovery_city = st.selectbox(
+            "Stadt in NRW",
+            NRW_CITIES,
+            index=default_city_index,
+        )
+        discovery_category = st.selectbox("Branche / Dienstleistung", category_options)
+        discovery_limit = st.slider("Maximale Treffer", min_value=10, max_value=100, value=60, step=10)
+        discovery_submitted = st.form_submit_button(
+            "Neue Firmen suchen",
+            type="primary",
+        )
+
+    if discovery_submitted:
+        st.session_state.pop("discovery_result", None)
+        st.session_state.pop("discovery_error", None)
+        try:
+            with st.spinner(f"Suche öffentliche Einträge in {discovery_city} …"):
+                st.session_state["discovery_result"] = cached_company_search(
+                    discovery_city,
+                    discovery_mode,
+                    discovery_category,
+                    int(discovery_limit),
+                )
+        except (CompanySearchError, ValueError) as exc:
+            st.session_state["discovery_error"] = str(exc)
+
+    discovery_error = st.session_state.get("discovery_error", "")
+    discovery_result = st.session_state.get("discovery_result")
+    if discovery_error:
+        st.error(f"Firmensuche fehlgeschlagen: {discovery_error}")
+    elif discovery_result:
+        found_rows = discovery_result.get("rows", [])
+        saved_rows = customer_rows if discovery_result.get("mode") == "Kunden" else provider_rows
+
+        def match_key(value: str) -> str:
+            return "".join(character for character in str(value).casefold() if character.isalnum())
+
+        def website_key(value: str) -> str:
+            return (
+                str(value or "").strip().casefold()
+                .removeprefix("https://")
+                .removeprefix("http://")
+                .removeprefix("www.")
+                .rstrip("/")
+            )
+
+        saved_names = {match_key(row.get("Unternehmen", "")) for row in saved_rows}
+        saved_websites = {website_key(row.get("Website", "")) for row in saved_rows if row.get("Website")}
+        new_rows = [
+            row for row in found_rows
+            if match_key(row.get("Unternehmen", "")) not in saved_names
+            and (not website_key(row.get("Website", "")) or website_key(row.get("Website", "")) not in saved_websites)
+        ]
+        duplicate_rows = [row for row in found_rows if row not in new_rows]
+
+        metric_cols = st.columns(3)
+        metric_cols[0].metric("Treffer aus OpenStreetMap", len(found_rows))
+        metric_cols[1].metric("Neu gegenüber Notion", len(new_rows))
+        metric_cols[2].metric("Bereits gespeichert", len(duplicate_rows))
+
+        if new_rows:
+            st.success(f"{len(new_rows)} neue, noch nicht im gewählten Notion-Verzeichnis erkannte Einträge gefunden.")
+            discovery_columns = [
+                "Unternehmen", "Branche / Typ", "Stadt", "Adresse", "PLZ",
+                "Telefon", "E-Mail", "Website", "Quelle", "Quellenlink",
+                "Prüfdatum", "Datenstatus",
+            ]
+            st.dataframe(new_rows, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Neue Treffer als CSV exportieren",
+                data=csv_bytes(new_rows, discovery_columns),
+                file_name=f"reinigungsradar_neue_{discovery_result.get('mode', 'firmen').lower()}_{discovery_result.get('city', 'nrw').lower().replace(' ', '_')}.csv",
+                mime="text/csv",
+            )
+        elif found_rows:
+            st.warning("Es wurden Treffer gefunden, aber alle gleichen bereits vorhandenen Namen oder Websites im Notion-Verzeichnis.")
+        else:
+            st.warning("Für diese Stadt und Kategorie wurden keine passenden öffentlichen OpenStreetMap-Einträge gefunden.")
+
+        if duplicate_rows:
+            with st.expander("Bereits im Notion-Verzeichnis erkannte Einträge"):
+                st.dataframe(duplicate_rows, use_container_width=True, hide_index=True)
+
+        if discovery_result.get("source_timestamp"):
+            st.caption(f"Stand der OpenStreetMap-Datenbank: {discovery_result['source_timestamp']}")
+        st.caption(
+            "Quelle: OpenStreetMap / Overpass API. Daten © OpenStreetMap contributors, "
+            "Lizenz ODbL 1.0. Karteneinträge können unvollständig, veraltet oder falsch kategorisiert sein; "
+            "Unternehmen und Kontaktdaten vor einer geschäftlichen Nutzung eigenständig prüfen."
+        )
+        st.markdown("[OpenStreetMap – Copyright und Lizenz](https://www.openstreetmap.org/copyright)")
+        st.warning(
+            "Ein öffentlich eingetragener Firmenkontakt ist keine Einwilligung zur Werbung. "
+            "Datenschutz und rechtliche Voraussetzungen einer Kontaktaufnahme sind separat zu prüfen."
+        )
+    else:
+        st.caption("Noch keine Suche ausgeführt. Die Suche wird nur auf Knopfdruck gestartet und sechs Stunden zwischengespeichert.")
 
 with tender_tab:
     st.subheader("Aktive öffentliche Ausschreibungen in NRW")
