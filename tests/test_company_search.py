@@ -56,7 +56,9 @@ class CompanySearchTests(unittest.TestCase):
                 },
             ]
         }
-        with patch("src.company_search.urlopen", return_value=FakeResponse(payload)):
+        with patch("src.company_search.search_overture_companies", return_value=[]):
+            with patch("src.company_search.search_overture_companies", return_value=[]):
+            with patch("src.company_search.urlopen", return_value=FakeResponse(payload)):
             result = company_search.search_companies(
                 "Köln", "Kunden", "Büros und Unternehmen", limit=10
             )
