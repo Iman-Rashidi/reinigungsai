@@ -31,7 +31,7 @@ from src.lead_lifecycle import (
     find_duplicate_pairs,
 )
 from src.supabase_leads import SupabaseLeadStoreError, persist_search_batch
-from src.listmonk_client import ListmonkAPIError, ListmonkClient, ListmonkConfigurationError
+from src.brevo_client import BrevoAPIError, BrevoClient, BrevoConfigurationError
 from src.company_search import (
     CUSTOMER_CATEGORIES,
     PROVIDER_CATEGORIES,
@@ -41,7 +41,7 @@ from src.company_search import (
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
-for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION", "LISTMONK_URL", "LISTMONK_API_USER", "LISTMONK_API_TOKEN"):
+for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION", "BREVO_API_KEY", "BREVO_DOI_TEMPLATE_ID", "BREVO_DOI_REDIRECT_URL", "BREVO_SENDER_EMAIL", "BREVO_SENDER_NAME"):
     if not os.environ.get(secret_name):
         try:
             value = st.secrets.get(secret_name)
@@ -815,173 +815,81 @@ with tender_tab:
 
 
 with email_marketing_tab:
-    st.subheader("Listmonk – E-Mail-Marketing")
-    st.caption(
-        "Kostenlose, selbst gehostete Open-Source-Verwaltung für Listen und Kampagnen. "
-        "Der Versand läuft über einen separat konfigurierten SMTP-Dienst."
-    )
-    st.warning(
-        "Öffentliche Firmen-E-Mail-Adressen sind keine Werbeeinwilligung. "
-        "Kontakte aus der Firmensuche werden nicht automatisch übernommen. "
-        "Für neue Abonnenten wird ausschließlich eine Listmonk-Liste mit Double-Opt-in unterstützt."
-    )
-
-    listmonk_url = os.environ.get("LISTMONK_URL", "").strip()
-    listmonk_user = os.environ.get("LISTMONK_API_USER", "").strip()
-    listmonk_token = os.environ.get("LISTMONK_API_TOKEN", "").strip()
-
-    if not (listmonk_url and listmonk_user and listmonk_token):
-        st.info(
-            "Listmonk ist noch nicht verbunden. Lege in Render die drei Secrets "
-            "`LISTMONK_URL`, `LISTMONK_API_USER` und `LISTMONK_API_TOKEN` an. "
-            "Die Einrichtung steht in der README. Zugangsdaten niemals hier oder in GitHub eintragen."
-        )
+    st.subheader("Brevo – kostenloses E-Mail-Marketing")
+    st.caption("Direkte HTTPS-API-Anbindung ohne separaten Mailserver oder SMTP-Hosting.")
+    st.warning("Öffentliche Firmen-E-Mail-Adressen sind keine Werbeeinwilligung. Kontakte aus der Firmensuche werden niemals automatisch übernommen.")
+    api_key = os.environ.get("BREVO_API_KEY", "").strip()
+    doi_template = os.environ.get("BREVO_DOI_TEMPLATE_ID", "").strip()
+    doi_redirect = os.environ.get("BREVO_DOI_REDIRECT_URL", "").strip()
+    if not api_key:
+        st.info("Brevo ist noch nicht verbunden. Hinterlege den Schlüssel als Render-Secret BREVO_API_KEY. Für Double-Opt-in zusätzlich BREVO_DOI_TEMPLATE_ID und BREVO_DOI_REDIRECT_URL konfigurieren.")
     else:
         try:
-            listmonk_client = ListmonkClient(
-                base_url=listmonk_url,
-                username=listmonk_user,
-                api_token=listmonk_token,
-            )
-        except ListmonkConfigurationError as exc:
-            st.error(f"Listmonk-Konfiguration ungültig: {exc}")
-            listmonk_client = None
-
-        if listmonk_client:
-            if st.button("Listmonk-Verbindung testen und Listen laden", type="primary", key="listmonk_test_connection"):
+            brevo = BrevoClient(api_key=api_key)
+        except BrevoConfigurationError as exc:
+            st.error(str(exc))
+            brevo = None
+        if brevo:
+            if st.button("Brevo-Verbindung testen und Listen laden", type="primary", key="brevo_test"):
                 try:
-                    st.session_state["listmonk_lists"] = listmonk_client.get_lists()
-                    st.session_state["listmonk_connection_error"] = ""
-                    st.session_state["listmonk_connection_ok"] = True
-                except ListmonkAPIError as exc:
-                    st.session_state["listmonk_connection_error"] = str(exc)
-                    st.session_state["listmonk_connection_ok"] = False
-
-            if st.session_state.get("listmonk_connection_ok"):
-                st.success(
-                    f"Listmonk-Verbindung erfolgreich. "
-                    f"{len(st.session_state.get('listmonk_lists', []))} Listen geladen."
-                )
-            elif st.session_state.get("listmonk_connection_error"):
-                st.error(f"Verbindung fehlgeschlagen: {st.session_state['listmonk_connection_error']}")
-
-            available_lists = st.session_state.get("listmonk_lists", [])
-            if available_lists:
-                display_lists = [
-                    {
-                        "ID": item.get("id"),
-                        "Name": item.get("name", ""),
-                        "Typ": item.get("type", ""),
-                        "Opt-in": item.get("optin", "nicht angegeben"),
-                        "Status": item.get("status", "nicht angegeben"),
-                    }
-                    for item in available_lists
-                ]
-                st.dataframe(display_lists, use_container_width=True, hide_index=True)
-
-                double_optin_lists = [
-                    item for item in available_lists
-                    if str(item.get("optin", "")).casefold() == "double"
-                    and str(item.get("status", "active")).casefold() != "archived"
-                    and str(item.get("id", "")).isdigit()
-                ]
-                list_names = {
-                    int(item["id"]): str(item.get("name") or f"Liste {item['id']}")
-                    for item in double_optin_lists
-                }
-                if not double_optin_lists:
-                    st.warning(
-                        "Keine aktive Double-Opt-in-Liste gefunden. Bitte zuerst in Listmonk "
-                        "eine Liste mit Double-Opt-in einrichten. Es werden keine Kontakte hinzugefügt."
-                    )
+                    st.session_state["brevo_lists"] = brevo.get_lists()
+                    st.session_state["brevo_campaigns"] = brevo.get_campaigns()
+                    st.session_state["brevo_error"] = ""
+                    st.session_state["brevo_ok"] = True
+                except BrevoAPIError as exc:
+                    st.session_state["brevo_error"] = str(exc)
+                    st.session_state["brevo_ok"] = False
+            if st.session_state.get("brevo_ok"):
+                st.success(f"Verbindung erfolgreich: {len(st.session_state.get('brevo_lists', []))} Listen geladen.")
+            elif st.session_state.get("brevo_error"):
+                st.error(st.session_state["brevo_error"])
+            lists = st.session_state.get("brevo_lists", [])
+            if lists:
+                st.dataframe([{"ID": x.get("id"), "Name": x.get("name"), "Kontakte": x.get("uniqueSubscribers", 0)} for x in lists], use_container_width=True, hide_index=True)
+                names = {int(x["id"]): str(x.get("name") or f"Liste {x['id']}") for x in lists if str(x.get("id", "")).isdigit()}
+                st.divider()
+                st.markdown("**Kontakt nur per Double-Opt-in aufnehmen**")
+                if not (doi_template.isdigit() and doi_redirect.startswith("https://")):
+                    st.info("DOI-Vorlage fehlt: BREVO_DOI_TEMPLATE_ID und BREVO_DOI_REDIRECT_URL konfigurieren.")
                 else:
-                    st.markdown("**Kontakt mit dokumentierter Einwilligung hinzufügen**")
-                    with st.form("listmonk_add_consented_subscriber"):
-                        subscriber_email = st.text_input("E-Mail-Adresse")
-                        subscriber_name = st.text_input("Name / Unternehmen")
-                        subscriber_list_id = st.selectbox(
-                            "Double-Opt-in-Liste",
-                            options=list(list_names),
-                            format_func=lambda value: list_names[value],
-                        )
-                        consent_date = st.text_input(
-                            "Datum der Einwilligung (YYYY-MM-DD)",
-                            value=date.today().isoformat(),
-                        )
-                        consent_method = st.selectbox(
-                            "Art der Einwilligung",
-                            ["E-Mail-Bestätigung", "Webformular mit Double-Opt-in", "Schriftliche Einwilligung"],
-                        )
-                        consent_evidence = st.text_input(
-                            "Nachweisreferenz",
-                            placeholder="z. B. Formular-ID oder Ablageverweis",
-                            help="Keine Passwörter oder unnötigen personenbezogenen Details eintragen.",
-                        )
-                        consent_confirmed = st.checkbox(
-                            "Ich habe die vorherige ausdrückliche Werbeeinwilligung dokumentiert und kann sie nachweisen."
-                        )
-                        subscriber_submitted = st.form_submit_button("Kontakt mit Double-Opt-in anlegen")
-
-                    if subscriber_submitted:
+                    with st.form("brevo_doi_contact"):
+                        email = st.text_input("E-Mail-Adresse")
+                        first_name = st.text_input("Vorname (optional)")
+                        list_id = st.selectbox("Zielgruppe", list(names), format_func=lambda x: names[x])
+                        consent_date = st.date_input("Datum der vorherigen Einwilligung", value=date.today())
+                        proof = st.text_input("Nachweisreferenz zur Einwilligung")
+                        consent = st.checkbox("Die vorherige ausdrückliche Werbeeinwilligung liegt vor und ist nachweisbar.")
+                        doi_submit = st.form_submit_button("Double-Opt-in anfordern")
+                    if doi_submit:
                         try:
-                            result = listmonk_client.add_consented_subscriber(
-                                email=subscriber_email,
-                                name=subscriber_name,
-                                list_id=int(subscriber_list_id),
-                                consent_date=consent_date,
-                                consent_method=consent_method,
-                                evidence_reference=consent_evidence,
-                                consent_confirmed=consent_confirmed,
-                            )
-                            subscriber_data = result.get("data", result)
-                            st.success(
-                                "Kontakt angelegt. Die Listenmitgliedschaft bleibt bis zur "
-                                "Bestätigung des Double-Opt-in unbestätigt."
-                            )
-                            st.caption(f"Listmonk-Kontakt-ID: {subscriber_data.get('id', 'nicht zurückgegeben')}")
-                        except (ListmonkAPIError, ListmonkConfigurationError, ValueError) as exc:
-                            st.error(f"Kontakt konnte nicht angelegt werden: {exc}")
-
-                    st.divider()
-                    st.markdown("**Kampagne als Entwurf erstellen**")
-                    with st.form("listmonk_create_campaign_draft"):
-                        campaign_name = st.text_input("Interner Kampagnenname")
-                        campaign_subject = st.text_input("E-Mail-Betreff")
-                        campaign_list_ids = st.multiselect(
-                            "Zielgruppen (nur Double-Opt-in-Listen)",
-                            options=list(list_names),
-                            format_func=lambda value: list_names[value],
-                        )
-                        campaign_body = st.text_area(
-                            "Inhalt (Markdown)",
-                            height=220,
-                            placeholder="Guten Tag …",
-                        )
-                        campaign_submitted = st.form_submit_button("Kampagnenentwurf erstellen")
-
-                    if campaign_submitted:
-                        try:
-                            campaign = listmonk_client.create_campaign_draft(
-                                name=campaign_name,
-                                subject=campaign_subject,
-                                list_ids=campaign_list_ids,
-                                body=campaign_body,
-                            )
-                            campaign_data = campaign.get("data", campaign)
-                            st.success(
-                                f"Kampagne als Entwurf erstellt "
-                                f"(ID: {campaign_data.get('id', 'nicht zurückgegeben')}). "
-                                "Es wurde keine E-Mail versendet."
-                            )
-                        except (ListmonkAPIError, ListmonkConfigurationError, ValueError) as exc:
-                            st.error(f"Kampagnenentwurf konnte nicht erstellt werden: {exc}")
-            else:
-                st.caption("Nach erfolgreichem Verbindungstest werden die verfügbaren Listen hier angezeigt.")
-
-    st.caption(
-        "Der Radar bietet absichtlich keine Schaltfläche zum Versenden. "
-        "Der finale Versand und die Prüfung der Zielgruppe bleiben ein manueller Schritt in Listmonk."
-    )
+                            brevo.create_doi_contact(email=email, first_name=first_name, list_id=int(list_id), template_id=int(doi_template), redirection_url=doi_redirect, consent_date=consent_date.isoformat(), evidence_reference=proof, consent_confirmed=consent)
+                            st.success("Bestätigungs-E-Mail angefordert. Die Aufnahme erfolgt erst nach DOI-Bestätigung.")
+                        except (BrevoAPIError, ValueError) as exc:
+                            st.error(f"DOI-Anfrage fehlgeschlagen: {exc}")
+                st.divider()
+                st.markdown("**Kampagne als Entwurf erstellen**")
+                with st.form("brevo_campaign_draft"):
+                    name = st.text_input("Interner Kampagnenname")
+                    subject = st.text_input("Betreff")
+                    sender_email = st.text_input("Verifizierte Absenderadresse", value=os.environ.get("BREVO_SENDER_EMAIL", ""))
+                    sender_name = st.text_input("Absendername", value=os.environ.get("BREVO_SENDER_NAME", "ReinigungsRadar"))
+                    target_ids = st.multiselect("Zielgruppen mit dokumentierter Einwilligung", list(names), format_func=lambda x: names[x])
+                    preview = st.text_input("Vorschautext (optional)")
+                    body = st.text_area("E-Mail-Inhalt", height=220)
+                    audience_ok = st.checkbox("Alle Kontakte dieser Listen haben eine dokumentierte rechtmäßige Werbeeinwilligung.")
+                    audience_proof = st.text_input("Referenz zur Einwilligungsdokumentation der Zielgruppe")
+                    draft_submit = st.form_submit_button("Kampagnenentwurf erstellen")
+                if draft_submit:
+                    try:
+                        result = brevo.create_campaign_draft(name=name, subject=subject, sender_email=sender_email, sender_name=sender_name, list_ids=target_ids, body=body, preview_text=preview, audience_consent_confirmed=audience_ok, audience_evidence_reference=audience_proof)
+                        st.success(f"Entwurf in Brevo erstellt (ID: {result.get('id', 'unbekannt')}). Kein Versand wurde ausgelöst.")
+                    except (BrevoAPIError, ValueError) as exc:
+                        st.error(f"Entwurf konnte nicht erstellt werden: {exc}")
+                campaigns = st.session_state.get("brevo_campaigns", [])
+                if campaigns:
+                    st.markdown("**Vorhandene Kampagnen**")
+                    st.dataframe([{"ID": x.get("id"), "Name": x.get("name"), "Status": x.get("status"), "Betreff": x.get("subject")} for x in campaigns], use_container_width=True, hide_index=True)
+    st.caption("Keine Versand- oder Planungsfunktion im Radar. Versand und finale Zielgruppenprüfung bleiben manuell in Brevo.")
 
 with setup_tab:
     st.subheader("Getrennte Notion-Datenbanken")
@@ -995,9 +903,9 @@ with setup_tab:
         "**Wichtiger Datenhinweis**\n"
         "- Der vorhandene Kundenbestand ist ein Mönchengladbach-Pilot und noch keine vollständige NRW-Abdeckung.\n\n"
         "**E-Mail-Marketing**\n"
-        "- Listmonk ist optional; Zugang über LISTMONK_URL, LISTMONK_API_USER und LISTMONK_API_TOKEN.\n"
-        "- Neue Kontakte nur mit dokumentierter vorheriger Einwilligung; Double-Opt-in muss aktiv sein.\n"
-        "- Kampagnen werden aus dem Radar nur als Entwurf angelegt, niemals automatisch versendet.\n\n"
+        "- Brevo Free wird direkt über die HTTPS-API angebunden; Secret: BREVO_API_KEY.\n"
+        "- Neue Kontakte nur mit dokumentierter vorheriger Einwilligung und Double-Opt-in.\n"
+        "- Kampagnen werden nur als Entwurf angelegt; Versand bleibt manuell in Brevo.\n\n"
         "**Ausschreibungen**\n"
         "- Aktive TED-Bekanntmachungen mit Leistungsort NRW; weitere Vergabeportale sind noch nicht integriert."
     )
