@@ -129,42 +129,62 @@ def search_companies(
     mode: str,
     category: str,
     limit: int = 80,
-    timeout: int = 35,
+    timeout: int = 22,
 ) -> dict:
-    """Search one city on demand; one serial request, with no writes to Notion."""
+    """Search one city on demand, fail over across public Overpass instances."""
     query = build_company_query(city, mode, category, limit)
-    endpoint = os.environ.get("OVERPASS_API_URL", OVERPASS_DEFAULT_URL).strip()
-    if not endpoint.startswith("https://"):
-        raise CompanySearchError("OVERPASS_API_URL muss eine HTTPS-Adresse sein.")
-    request = Request(
-        endpoint,
-        data=urlencode({"data": query}).encode("utf-8"),
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Accept": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        if exc.code in (429, 504):
-            raise CompanySearchError(
-                f"Die OpenStreetMap-Suche ist vorübergehend ausgelastet (HTTP {exc.code}). "
-                "Bitte später erneut versuchen; die Suche wird nicht automatisch wiederholt."
-            ) from None
-        raise CompanySearchError(f"Die OpenStreetMap-Suche antwortete mit HTTP {exc.code}.") from None
-    except (URLError, TimeoutError):
-        raise CompanySearchError("Der OpenStreetMap-Suchdienst ist momentan nicht erreichbar.") from None
-    except json.JSONDecodeError:
-        raise CompanySearchError("Der OpenStreetMap-Suchdienst lieferte keine gültige JSON-Antwort.") from None
+    configured = os.environ.get("OVERPASS_API_URL", "").strip()
+    endpoints = []
+    if configured:
+        endpoints.append(configured)
+    endpoints.extend([
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        OVERPASS_DEFAULT_URL,
+    ])
+    # Preserve order while removing duplicate endpoints.
+    endpoints = list(dict.fromkeys(endpoints))
+
+    failures: list[str] = []
+    payload = None
+    for endpoint in endpoints:
+        if not endpoint.startswith("https://"):
+            failures.append("configured endpoint is not HTTPS")
+            continue
+        request = Request(
+            endpoint,
+            data=urlencode({"data": query}).encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                candidate = json.loads(response.read().decode("utf-8"))
+            if not isinstance(candidate, dict) or not isinstance(candidate.get("elements"), list):
+                failures.append("invalid JSON response")
+                continue
+            payload = candidate
+            break
+        except HTTPError as exc:
+            failures.append(f"{endpoint}: HTTP {exc.code}")
+        except (URLError, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", None)
+            failures.append(f"{endpoint}: {reason or type(exc).__name__}")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            failures.append(f"{endpoint}: invalid JSON")
+
+    if payload is None:
+        details = "; ".join(failures[-3:])
+        raise CompanySearchError(
+            "Alle öffentlichen Overpass-Server sind momentan nicht erreichbar "
+            "oder ausgelastet. " + details
+        )
 
     elements = payload.get("elements")
-    if not isinstance(elements, list):
-        raise CompanySearchError("Unerwartetes Antwortformat des OpenStreetMap-Suchdienstes.")
-
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
     for element in elements:
