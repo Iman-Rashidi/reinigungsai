@@ -41,7 +41,9 @@ def _canonical_url(value: str) -> str:
     if not value:
         return ""
     parsed = urlsplit(value.strip())
-    if not parsed.hostname:
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return ""
+    if parsed.username or parsed.password:
         return ""
     host = parsed.hostname.lower().removeprefix("www.")
     path = re.sub(r"/+", "/", parsed.path).rstrip("/") or "/"
@@ -130,7 +132,13 @@ def find_duplicate_pairs(
                 or not right["category_key"]
                 or left["category_key"] == right["category_key"]
             )
-            if similarity >= title_threshold and same_location and compatible_category:
+            if (
+                left["title_key"]
+                and right["title_key"]
+                and similarity >= title_threshold
+                and same_location
+                and compatible_category
+            ):
                 reasons.append("similar_title_same_location")
             if reasons:
                 pairs.append({
