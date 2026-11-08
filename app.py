@@ -84,7 +84,7 @@ if not st.session_state.get(AUTH_KEY, False):
         st.session_state[AUTH_KEY] = True
         st.session_state["reinigungsradar_auth_method"] = "steuerpilot_sso"
         # Remove the short-lived credential from the visible iframe URL immediately.
-        st.query_params.clear()
+        st.query_params.pop("sso", None)
 
 if not st.session_state.get(AUTH_KEY, False):
     if not APP_PASSWORD:
