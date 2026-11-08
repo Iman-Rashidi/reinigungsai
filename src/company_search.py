@@ -6,6 +6,7 @@ import os
 import re
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 OVERPASS_DEFAULT_URL = "https://overpass.private.coffee/api/interpreter"
@@ -141,7 +142,7 @@ def search_companies(
         raise CompanySearchError("OVERPASS_API_URL muss eine HTTPS-Adresse sein.")
     request = Request(
         endpoint,
-        data=query.encode("utf-8"),
+        data=urlencode({"data": query}).encode("utf-8"),
         headers={
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "Accept": "application/json",
