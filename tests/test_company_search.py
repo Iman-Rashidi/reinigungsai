@@ -74,7 +74,13 @@ class CompanySearchTests(unittest.TestCase):
                     "Köln", "Kunden", "Büros und Unternehmen", limit=10
                 )
         request = mocked_urlopen.call_args.args[0]
-        self.assertIn("overpass", request.full_url)
+        free_hosts = (
+            "ovp.dresel.systems",
+            "maps.mail.ru",
+            "overpass-api.de",
+            "overpass.private.coffee",
+        )
+        self.assertTrue(any(host in request.full_url for host in free_hosts))
         self.assertNotIn("googleapis.com", request.full_url)
 
     def test_photon_fallback_rejects_results_without_an_exact_city_match(self):
