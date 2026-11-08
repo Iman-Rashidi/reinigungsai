@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import re
 
-from src.access_control import password_matches
 from src.steuerpilot_sso import verify_sso_token
 
 import streamlit as st
@@ -45,7 +44,7 @@ from src.company_search import (
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
-for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
+for secret_name in ("NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
     if not os.environ.get(secret_name):
         try:
             value = st.secrets.get(secret_name)
@@ -73,7 +72,6 @@ def cached_public_lead_search(city: str, category: str, extra_terms: str, limit:
 
 # Staging SSO from SteuerPilot Pro. The short-lived token is signed server-side;
 # the shared secret is only stored in Render environment variables, never in the URL.
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 SSO_SECRET = os.environ.get("STEUEERPILOT_RADAR_SSO_SECRET", "").strip()
 AUTH_KEY = "reinigungsradar_authenticated"
 
@@ -87,26 +85,11 @@ if not st.session_state.get(AUTH_KEY, False):
         st.query_params.pop("sso", None)
 
 if not st.session_state.get(AUTH_KEY, False):
-    if not APP_PASSWORD:
-        st.title("📒 ReinigungsRadar NRW")
-        st.error(
-            "Dashboard gesperrt: Weder ein gültiger SteuerPilot-SSO-Zugang "
-            "noch das geschützte Render-Secret APP_PASSWORD ist verfügbar."
-        )
-        st.stop()
-
     st.title("📒 ReinigungsRadar NRW")
-    st.caption("Geschützter Staging-Zugang")
-    with st.form("reinigungsradar_login"):
-        entered_password = st.text_input("Zugangspasswort", type="password")
-        login_submitted = st.form_submit_button("Anmelden")
-    if login_submitted:
-        if password_matches(entered_password, APP_PASSWORD):
-            st.session_state[AUTH_KEY] = True
-            st.session_state["reinigungsradar_auth_method"] = "password"
-            st.rerun()
-        else:
-            st.error("Das Zugangspasswort ist nicht korrekt.")
+    st.info(
+        "Der direkte Zugang ist deaktiviert. Bitte öffnen Sie ReinigungsRadar "
+        "über das zentrale SteuerPilot-Dashboard."
+    )
     st.stop()
 
 st.title("📒 ReinigungsRadar NRW")
@@ -119,10 +102,10 @@ st.info(
     "und keine Änderung an Notion-Datensätzen."
 )
 st.warning(
-    "APP_PASSWORD bietet nur einen gemeinsamen Staging-Zugang und ersetzt keine "
-    "produktive Benutzerverwaltung. Vor echten personenbezogenen Daten müssen "
-    "individuelle Zugriffe, Mandantentrennung und Datenschutz geprüft sein. "
-    "Öffentliche Kontaktdaten sind keine Einwilligung für Werbeansprache."
+    "Der Zugriff erfolgt ausschließlich über die zentrale SteuerPilot-Anmeldung. "
+    "Vor echten personenbezogenen Daten müssen individuelle Benutzerrechte, "
+    "Mandantentrennung und Datenschutz geprüft sein. Öffentliche Kontaktdaten "
+    "sind keine Einwilligung für Werbeansprache."
 )
 
 with st.sidebar:
