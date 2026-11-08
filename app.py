@@ -340,9 +340,9 @@ with discovery_tab:
             )
         gold_rows = [row for row in contact_ready_rows if row["Priorität"].startswith("⭐ GOLD")]
         st.caption(
-            "Es werden nur neue Firmen mit öffentlicher E-Mail-Adresse und Telefonnummer angezeigt. "
-            "⭐ GOLD gibt es nur bei ausdrücklich genanntem Ansprechpartner und einer passenden "
-            "Funktionsangabe zu Einkauf, Vergabe, Verträgen oder Objektleitung."
+            "Alle neuen Firmennamen werden angezeigt – auch wenn E-Mail oder Telefonnummer fehlen. "
+            "Der Kontaktstatus wird separat markiert. ⭐ GOLD gibt es nur bei ausdrücklich genanntem "
+            "Ansprechpartner und einer passenden Funktionsangabe zu Einkauf, Vergabe, Verträgen oder Objektleitung."
         )
 
         metric_cols = st.columns(4)
