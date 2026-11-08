@@ -63,15 +63,48 @@ def property_text(prop: Any) -> str:
 
 
 def pages_to_rows(pages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Map Notion page properties and ignore empty placeholder rows."""
+    """Map Notion pages to directory rows, using the page title as a safe fallback.
+
+    Notion databases can name their title property differently (e.g. Name, Firma,
+    or Unternehmen). The API page title is authoritative even when that property
+    does not match the dashboard's canonical column name.
+    """
     rows: list[dict[str, str]] = []
     for page in pages:
         properties = page.get("properties", {})
         row = {name: property_text(value) for name, value in properties.items()}
-        if row.get("Unternehmen", "").strip():
+
+        # Prefer the canonical field, then common German/English title labels.
+        company_name = (
+            row.get("Unternehmen", "").strip()
+            or row.get("Firma", "").strip()
+            or row.get("Name", "").strip()
+        )
+
+        # If the title property has a custom label, discover it by its Notion type.
+        if not company_name:
+            for property_name, prop in properties.items():
+                if isinstance(prop, dict) and isinstance(prop.get("title"), list):
+                    company_name = property_text(prop).strip()
+                    if company_name:
+                        break
+
+        # Final fallback: Notion's page-level title extraction.
+        if not company_name:
+            title_parts = []
+            for prop in properties.values():
+                if isinstance(prop, dict) and isinstance(prop.get("title"), list):
+                    title_parts.extend(
+                        str(item.get("plain_text") or "")
+                        for item in prop["title"]
+                        if isinstance(item, dict)
+                    )
+            company_name = " ".join(part for part in title_parts if part).strip()
+
+        if company_name:
+            row["Unternehmen"] = company_name
             rows.append(row)
     return rows
-
 
 def complete_rows(
     rows: list[dict[str, str]], columns: list[str]
