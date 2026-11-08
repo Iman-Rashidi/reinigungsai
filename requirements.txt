@@ -1,2 +1,3 @@
 # ReinigungsAI Streamlit MVP dependencies
 streamlit>=1.40,<2.0
+overturemaps>=2.1,<2.2
