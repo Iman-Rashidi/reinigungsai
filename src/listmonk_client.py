@@ -109,7 +109,7 @@ class ListmonkClient:
         return payload.get("data", payload)
 
     def get_lists(self) -> list[dict]:
-        payload = self._request("GET", "/api/lists")
+        payload = self._request("GET", "/api/lists?per_page=all")
         data = self._data(payload)
         if isinstance(data, list):
             items = data
