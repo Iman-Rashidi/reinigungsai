@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ReinigungsRadar opportunity database (never commit live records)
+data/*.sqlite
+data/*.sqlite3
+data/*.sqlite-shm
+data/*.sqlite-wal

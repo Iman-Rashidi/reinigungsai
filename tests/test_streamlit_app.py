@@ -15,9 +15,16 @@ class StreamlitAppTests(unittest.TestCase):
     def test_ted_dashboard_uses_the_nrw_active_notice_search(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("Ausschreibungen (TED)", source)
+        self.assertIn("Opportunity Engine", source)
+        self.assertIn("render_opportunity_engine_tab()", source)
         self.assertIn("search_active_notices(", source)
         self.assertIn('region="NRW"', source)
         self.assertIn("keine automatische Kontaktaufnahme oder Angebotsabgabe", source)
+
+    def test_opportunity_dashboard_has_valid_python_syntax(self):
+        source = (ROOT / "src" / "opportunity_engine" / "dashboard.py").read_text(encoding="utf-8")
+        ast.parse(source, filename="src/opportunity_engine/dashboard.py")
+        self.assertIn("opportunity_changes", (ROOT / "src" / "opportunity_engine" / "store.py").read_text(encoding="utf-8"))
 
     def test_streamlit_requirement_is_not_html_escaped(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")

@@ -35,6 +35,7 @@ from src.company_search import (
     CompanySearchError,
     search_companies,
 )
+from src.opportunity_engine.dashboard import render_opportunity_engine_tab
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
@@ -176,11 +177,12 @@ provider_rows = st.session_state.get("provider_rows", [])
 customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
 provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
 
-customer_tab, provider_tab, discovery_tab, lead_radar_tab, tender_tab, setup_tab = st.tabs([
+customer_tab, provider_tab, discovery_tab, lead_radar_tab, opportunity_engine_tab, tender_tab, setup_tab = st.tabs([
     "🏢 Kundenverzeichnis",
     "🛡️ Anbieter-Verzeichnis",
     "🔎 Neue Firmen finden",
     "🌐 Job- & Projekt-Radar",
+    "🧭 Opportunity Engine",
     "📄 Ausschreibungen (TED)",
     "⚙️ Datenquellen",
 ])
@@ -697,7 +699,10 @@ with setup_tab:
         "werden nicht als bestätigter Bedarf ausgegeben."
     )
 
+with opportunity_engine_tab:
+    render_opportunity_engine_tab()
+
 st.caption(
-    "ReinigungsRadar NRW · Kunden, Anbieter und TED-Ausschreibungen getrennt · "
+    "ReinigungsRadar NRW · Kunden, Anbieter und Ausschreibungen getrennt · "
     "read-only · keine automatische Kontaktaufnahme oder Angebotsabgabe."
 )

@@ -76,11 +76,20 @@ def build_expert_query(
 
     allowed_keywords = {
         "Gebäudereinigung": "Gebäudereinigung",
+        "Reinigungsdienstleistungen": "Reinigungsdienstleistungen",
+        "Unterhaltsreinigung": "Unterhaltsreinigung",
+        "Glasreinigung": "Glasreinigung",
         "Sicherheitsdienst": "Sicherheitsdienst",
+        "Wachdienst": "Wachdienst",
+        "Objektschutz": "Objektschutz",
+        "Facility Management": "Facility Management",
+        "Hausmeisterservice": "Hausmeisterservice",
+        "Bauleistungen": "Bauleistungen",
+        "Sanierung": "Sanierung",
     }
     if clean not in allowed_keywords:
         raise ValueError(
-            "Für TED sind nur die Kategorien Gebäudereinigung und Sicherheitsdienst freigeschaltet."
+            "Der TED-Suchbegriff ist nicht freigeschaltet."
         )
     phrase = allowed_keywords[clean].replace('"', "")
     return (
