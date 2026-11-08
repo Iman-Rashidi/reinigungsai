@@ -29,6 +29,11 @@ from src.lead_discovery import (
     build_manual_portal_links,
     search_public_leads,
 )
+from src.lead_lifecycle import (
+    compare_ad_snapshots,
+    detect_ad_status,
+    find_duplicate_pairs,
+)
 from src.company_search import (
     CUSTOMER_CATEGORIES,
     PROVIDER_CATEGORIES,
@@ -470,12 +475,37 @@ with lead_radar_tab:
         st.session_state.pop("lead_radar_error", None)
         try:
             with st.spinner("Durchsuche öffentliche Suchergebnisse und bewerte Bedarfssignale …"):
-                st.session_state["lead_radar_result"] = cached_public_lead_search(
+                new_result = cached_public_lead_search(
                     radar_city,
                     radar_category,
                     radar_extra,
                     int(radar_limit),
                 )
+            previous_result = st.session_state.get("lead_radar_result") or {}
+            changes = []
+            previous_by_url = {
+                row.get("Quellenlink", ""): row
+                for row in previous_result.get("rows", [])
+                if row.get("Quellenlink")
+            }
+            for row in new_result.get("rows", []):
+                old_row = previous_by_url.get(row.get("Quellenlink", ""))
+                if old_row:
+                    old_snapshot = {
+                        "title": old_row.get("Titel"), "description": old_row.get("Suchauszug"),
+                        "location": previous_result.get("city"), "category": previous_result.get("category"),
+                        "status": old_row.get("Status"), "url": old_row.get("Quellenlink"),
+                    }
+                    new_snapshot = {
+                        "title": row.get("Titel"), "description": row.get("Suchauszug"),
+                        "location": new_result.get("city"), "category": new_result.get("category"),
+                        "status": row.get("Status"), "url": row.get("Quellenlink"),
+                    }
+                    diff = compare_ad_snapshots(old_snapshot, new_snapshot)
+                    if diff["changed"]:
+                        changes.append({"title": row.get("Titel", "Ohne Titel"), **diff})
+            st.session_state["lead_radar_changes"] = changes
+            st.session_state["lead_radar_result"] = new_result
         except (LeadDiscoveryError, ValueError) as exc:
             st.session_state["lead_radar_error"] = str(exc)
 
@@ -486,6 +516,58 @@ with lead_radar_tab:
     elif radar_result:
         radar_rows = radar_result.get("rows", [])
         st.metric("Öffentliche Bedarfssignale gefunden", len(radar_rows))
+        radar_changes = st.session_state.get("lead_radar_changes", [])
+        if radar_changes:
+            with st.expander(f"Änderungen seit der letzten Suche ({len(radar_changes)})"):
+                for change in radar_changes:
+                    st.write(f"**{change['title']}**")
+                    st.json(change["changed_fields"])
+
+        # Compare public-web results with TED notices already loaded in this session.
+        ted_for_dedup = st.session_state.get("ted_notices", [])
+        combined_records = [
+            {
+                "title": row.get("Titel", ""),
+                "description": row.get("Suchauszug", ""),
+                "location": radar_result.get("city", ""),
+                "category": radar_result.get("category", ""),
+                "source": row.get("Domain", "Public Web"),
+                "url": row.get("Quellenlink", ""),
+            }
+            for row in radar_rows
+        ]
+        combined_records.extend([
+            {
+                "title": notice.get("title", ""),
+                "description": notice.get("description", ""),
+                "location": notice.get("location", ""),
+                "source": "TED",
+                "external_id": notice.get("publication_number", ""),
+                "url": notice.get("url", ""),
+            }
+            for notice in ted_for_dedup
+        ])
+        cross_portal_duplicates = [
+            pair for pair in find_duplicate_pairs(combined_records)
+            if pair.get("cross_portal")
+        ] if len(combined_records) > 1 else []
+        if cross_portal_duplicates:
+            duplicate_view = []
+            for pair in cross_portal_duplicates:
+                left = combined_records[pair["left_index"]]
+                right = combined_records[pair["right_index"]]
+                duplicate_view.append({
+                    "Portal A": left.get("source", ""),
+                    "Auftrag A": left.get("title", ""),
+                    "Portal B": right.get("source", ""),
+                    "Auftrag B": right.get("title", ""),
+                    "Ähnlichkeit": pair["similarity"],
+                    "Erkennungsgrund": ", ".join(pair["reasons"]),
+                })
+            st.warning(f"{len(duplicate_view)} mögliche portalübergreifende Doppelmeldungen erkannt. Bitte manuell bestätigen.")
+            st.dataframe(duplicate_view, use_container_width=True, hide_index=True)
+        elif ted_for_dedup:
+            st.caption("Aktuell wurde keine ausreichend belegte portalübergreifende Doppelmeldung zwischen Websuche und TED erkannt.")
         if radar_rows:
             st.dataframe(
                 radar_rows,
@@ -591,6 +673,21 @@ with tender_tab:
                     limit=int(tender_limit),
                     region="NRW",
                 )
+            previous_notices = st.session_state.get("ted_notices", [])
+            previous_by_id = {
+                item.get("publication_number") or item.get("url"): item
+                for item in previous_notices
+                if item.get("publication_number") or item.get("url")
+            }
+            ted_changes = []
+            for item in ted_result["notices"]:
+                stable_key = item.get("publication_number") or item.get("url")
+                old_item = previous_by_id.get(stable_key)
+                if old_item:
+                    diff = compare_ad_snapshots(old_item, item)
+                    if diff["changed"]:
+                        ted_changes.append({"title": item.get("title", "Ohne Titel"), **diff})
+            st.session_state["ted_changes"] = ted_changes
             st.session_state["ted_notices"] = ted_result["notices"]
             st.session_state["ted_total"] = ted_result["total"]
             st.session_state["ted_query"] = ted_result["query"]
@@ -602,6 +699,12 @@ with tender_tab:
     if ted_error:
         st.error(f"TED-Suche fehlgeschlagen: {ted_error}")
     elif ted_notices:
+        ted_changes = st.session_state.get("ted_changes", [])
+        if ted_changes:
+            with st.expander(f"Änderungen seit der letzten TED-Suche ({len(ted_changes)})"):
+                for change in ted_changes:
+                    st.write(f"**{change['title']}**")
+                    st.json(change["changed_fields"])
         st.success(
             f"{len(ted_notices)} Treffer geladen. "
             f"TED meldet insgesamt {st.session_state.get('ted_total', len(ted_notices))} passende aktive Bekanntmachungen."
@@ -610,6 +713,14 @@ with tender_tab:
             publication_number = notice.get("publication_number") or "Ohne Veröffentlichungsnummer"
             title = notice.get("title") or "Ohne Titel"
             with st.expander(f"{publication_number} · {title}"):
+                lifecycle = detect_ad_status({"deadline": notice.get("deadline"), "status": "active"})
+                lifecycle_label = {
+                    "active": "Aktiv / Frist noch offen",
+                    "expired": "Abgelaufen",
+                    "stale": "Veraltet – Aktualität prüfen",
+                    "unknown": "Status nicht belegbar",
+                }.get(lifecycle["status"], lifecycle["status"])
+                st.caption(f"Anzeigenstatus: {lifecycle_label} · Nachweis: {lifecycle['reason']}")
                 meta_cols = st.columns(3)
                 meta_cols[0].caption("Auftraggeber")
                 meta_cols[0].write(notice.get("buyer") or "Nicht angegeben")
