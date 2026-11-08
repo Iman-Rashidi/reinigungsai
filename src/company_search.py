@@ -227,8 +227,11 @@ def search_companies(
     if configured:
         endpoints.append(configured)
     endpoints.extend([
+        # Europe-wide daily extract, independent of the main OSMF instance.
+        "https://ovp.dresel.systems/api/interpreter",
+        # Global VK Maps instance, operated independently.
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         "https://overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter",
         OVERPASS_DEFAULT_URL,
     ])
     # Preserve order while removing duplicate endpoints.
