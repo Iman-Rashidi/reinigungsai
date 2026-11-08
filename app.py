@@ -475,6 +475,7 @@ with lead_radar_tab:
         previous_result = st.session_state.get("lead_radar_result") or {}
         st.session_state.pop("lead_radar_result", None)
         st.session_state.pop("lead_radar_error", None)
+        st.session_state.pop("lead_radar_storage", None)
         st.session_state.pop("lead_radar_storage_error", None)
         try:
             with st.spinner("Durchsuche öffentliche Suchergebnisse und bewerte Bedarfssignale …"):
@@ -696,6 +697,7 @@ with tender_tab:
         st.session_state["ted_notices"] = []
         st.session_state["ted_search_error"] = ""
         st.session_state.pop("ted_storage_error", None)
+        st.session_state.pop("ted_storage", None)
         st.session_state["ted_search_ran"] = True
         try:
             with st.spinner("Suche aktive TED-Bekanntmachungen für NRW …"):
