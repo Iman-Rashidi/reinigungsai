@@ -433,20 +433,6 @@ with lead_radar_tab:
         list(LEAD_CATEGORIES.keys()),
         key="lead_radar_category",
     )
-    radar_extra = st.text_input(
-        "Zusätzliche Suchbegriffe (optional)",
-        placeholder="z. B. Büro, Hotel, Industrie, Hausverwaltung",
-        max_chars=120,
-        key="lead_radar_extra",
-    )
-    radar_limit = st.slider(
-        "Maximale Suchtreffer",
-        min_value=5,
-        max_value=20,
-        value=15,
-        key="lead_radar_limit",
-    )
-
     st.info(
         "Kostenloser Modus: automatische Websuche über externe Such-APIs ist deaktiviert, "
         "damit keine nutzungsabhängigen API-Kosten entstehen. Die manuellen Suchlinks "
