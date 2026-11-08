@@ -40,6 +40,16 @@ class DirectoryDataTests(unittest.TestCase):
         self.assertEqual(rows[0]["Prüfdatum"], "2026-11-04")
         self.assertEqual(rows[0]["Score"], "2")
 
+    def test_pages_to_rows_accepts_flattened_notion_records(self):
+        records = [
+            {"Unternehmen": "Trützschler Group SE", "Branche": "Industrie", "Stadt": "Mönchengladbach"},
+            {"Unternehmen": "", "Branche": "", "Stadt": ""},
+        ]
+        rows = pages_to_rows(records)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Unternehmen"], "Trützschler Group SE")
+        self.assertEqual(rows[0]["Branche"], "Industrie")
+
     def test_complete_rows_aligns_to_real_customer_and_provider_schemas(self):
         customer = complete_rows([{"Unternehmen": "Beispiel", "Branche": "Industrie"}], CUSTOMER_COLUMNS)[0]
         provider = complete_rows([{"Unternehmen": "Dienstleister", "Dienstleistung": "Reinigung"}], PROVIDER_COLUMNS)[0]
