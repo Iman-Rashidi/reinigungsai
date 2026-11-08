@@ -119,7 +119,12 @@ with st.sidebar:
         st.rerun()
     st.header("Filter")
     st.text_input("Bundesland", value="Nordrhein-Westfalen (NRW)", disabled=True)
-    city_filter = st.text_input("Stadt enthält", placeholder="z. B. Viersen")
+    city_filter = st.text_input(
+        "Stadt enthält (nur gespeicherte Einträge)",
+        placeholder="z. B. Köln",
+        help="Dieser Filter zeigt nur passende Datensätze, die bereits aus Notion geladen wurden. Für eine neue Firmensuche nutze „Neue Firmen finden“.",
+    )
+    st.caption("Der Stadtfilter startet keine Live-Suche.")
     category_filter = st.text_input("Branche / Dienstleistung enthält")
     search_text = st.text_input("Freitextsuche", placeholder="Firma, Ort, Website …")
 
@@ -236,22 +241,14 @@ with provider_tab:
 
 with discovery_tab:
     st.subheader("Neue Firmen in NRW finden")
-    google_places_enabled = bool(os.environ.get("GOOGLE_MAPS_API_KEY", "").strip())
-    if google_places_enabled:
-        st.caption(
-            "Live-Firmensuche über Google Maps / Places API. Treffer enthalten die von Google "
-            "ermittelte Adresse, Stadt und den direkten Maps-Link."
-        )
-        st.info("Die Suche ist stadtbezogen. Quelle und Prüfdatum werden pro Treffer angezeigt; Notion bleibt unverändert.")
-    else:
-        st.caption(
-            "Live-Firmensuche über OpenStreetMap / Overpass. Für Google Maps muss "
-            "GOOGLE_MAPS_API_KEY als geschütztes Render-Secret eingerichtet werden."
-        )
-        st.warning(
-            "Google Maps ist noch nicht aktiviert. Aktuell läuft die Suche über OpenStreetMap; "
-            "die Trefferqualität und Adressabdeckung können je nach Stadt variieren."
-        )
+    st.caption(
+        "Kostenlose Live-Firmensuche über OpenStreetMap / Overpass und bei Bedarf Photon. "
+        "Es wird kein Google-Places- oder anderer kostenpflichtiger Suchdienst aufgerufen."
+    )
+    st.info(
+        "Gib die gewünschte Stadt unten ein. Die Suche ist auf diese Stadt begrenzt; "
+        "Treffer aus anderen Städten werden verworfen. Notion bleibt unverändert."
+    )
 
     discovery_mode = st.radio(
         "Gesucht werden",
@@ -266,10 +263,11 @@ with discovery_tab:
     )
     with st.form("company_discovery_search"):
         discovery_city = st.text_input(
-            "Stadt / Gemeinde in NRW",
-            value="Mönchengladbach",
+            "Stadt / Gemeinde in NRW (Live-Suche)",
+            value="",
             max_chars=80,
-            placeholder="z. B. Viersen, Köln, Düren oder Erkelenz",
+            placeholder="z. B. Köln, Düsseldorf, Viersen oder Erkelenz",
+            help="Hier wird tatsächlich eine neue Suche in der eingegebenen Stadt gestartet.",
         )
         discovery_category = st.selectbox("Branche / Dienstleistung", category_options)
         discovery_limit = st.slider("Maximale Treffer", min_value=10, max_value=100, value=60, step=10)
@@ -281,16 +279,19 @@ with discovery_tab:
     if discovery_submitted:
         st.session_state.pop("discovery_result", None)
         st.session_state.pop("discovery_error", None)
-        try:
-            with st.spinner(f"Suche öffentliche Einträge in {discovery_city} …"):
-                st.session_state["discovery_result"] = cached_company_search(
-                    discovery_city,
-                    discovery_mode,
-                    discovery_category,
-                    int(discovery_limit),
-                )
-        except (CompanySearchError, ValueError) as exc:
-            st.session_state["discovery_error"] = str(exc)
+        if not discovery_city.strip():
+            st.session_state["discovery_error"] = "Bitte zuerst eine Stadt eingeben, zum Beispiel Köln."
+        else:
+            try:
+                with st.spinner(f"Kostenlose OpenStreetMap-Suche in {discovery_city} …"):
+                    st.session_state["discovery_result"] = cached_company_search(
+                        discovery_city,
+                        discovery_mode,
+                        discovery_category,
+                        int(discovery_limit),
+                    )
+            except (CompanySearchError, ValueError) as exc:
+                st.session_state["discovery_error"] = str(exc)
 
     discovery_error = st.session_state.get("discovery_error", "")
     discovery_result = st.session_state.get("discovery_result")
@@ -426,7 +427,7 @@ with discovery_tab:
             "Datenschutz und rechtliche Voraussetzungen einer Kontaktaufnahme sind separat zu prüfen."
         )
     else:
-        st.caption("Noch keine Suche ausgeführt. Die Suche wird nur auf Knopfdruck gestartet und höchstens 30 Minuten zwischengespeichert.")
+        st.caption("Noch keine Suche ausgeführt. Gib zuerst die gewünschte Stadt ein. Die Suche startet nur auf Knopfdruck und wird höchstens 30 Minuten zwischengespeichert.")
 
 with lead_radar_tab:
     st.subheader("Job- & Projekt-Radar für NRW")
@@ -438,8 +439,9 @@ with lead_radar_tab:
 
     radar_city = st.text_input(
         "Stadt / Region",
-        value="Mönchengladbach",
+        value="",
         max_chars=80,
+        placeholder="z. B. Köln, Düsseldorf oder Viersen",
         key="lead_radar_city",
     )
     radar_category = st.selectbox(
