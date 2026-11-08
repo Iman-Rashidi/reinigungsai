@@ -124,6 +124,89 @@ def _normalise_element(element: dict, city: str, mode: str) -> dict[str, str]:
     }
 
 
+
+def _google_places_search(city: str, mode: str, category: str, limit: int, api_key: str) -> dict:
+    """Search Google Places Text Search (New); requires a configured Places API key."""
+    if mode == "Anbieter":
+        search_term = "Gebäudereinigungsunternehmen Reinigungsservice"
+    else:
+        search_term = {
+            "Alle passenden Standorte": "Unternehmen Büro Industrie Gewerbe",
+            "Büros und Unternehmen": "Bürogebäude Unternehmen Firmenstandort",
+            "Handel und Einzelhandel": "Einkaufszentrum Einzelhandel Geschäft",
+            "Hotels und Beherbergung": "Hotel",
+            "Gastronomie": "Restaurant Café",
+            "Gesundheit": "Krankenhaus Klinik Arztpraxis",
+            "Industrie und Gewerbe": "Industrieunternehmen Gewerbepark Fabrik",
+        }.get(category, "Unternehmen")
+    body = json.dumps({
+        "textQuery": f"{search_term} in {city}, Nordrhein-Westfalen, Deutschland",
+        "pageSize": min(max(int(limit), 1), 20),
+        "languageCode": "de",
+        "regionCode": "DE",
+    }).encode("utf-8")
+    request = Request(
+        "https://places.googleapis.com/v1/places:searchText",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": (
+                "places.id,places.displayName,places.formattedAddress,"
+                "places.addressComponents,places.websiteUri,places.nationalPhoneNumber,"
+                "places.googleMapsUri,places.location,places.types"
+            ),
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=25) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise CompanySearchError(f"Google Places API meldet HTTP {exc.code}: {detail}") from exc
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise CompanySearchError(f"Google Places API ist momentan nicht erreichbar: {exc}") from exc
+
+    rows = []
+    for place in payload.get("places", []):
+        name = (place.get("displayName") or {}).get("text", "").strip()
+        if not name:
+            continue
+        components = place.get("addressComponents") or []
+        city_name = ""
+        postcode = ""
+        for component in components:
+            types = component.get("types") or []
+            if any(t in types for t in ("locality", "postal_town")):
+                city_name = component.get("longText", "")
+            if "postal_code" in types:
+                postcode = component.get("longText", "")
+        if not city_name:
+            # Keep the selected municipality as fallback, never the pilot city.
+            city_name = city
+        rows.append({
+            "Unternehmen": name,
+            "Branche / Typ": ", ".join((place.get("types") or [])[:3]) or category,
+            "Stadt": city_name,
+            "Adresse": place.get("formattedAddress", ""),
+            "PLZ": postcode,
+            "Telefon": place.get("nationalPhoneNumber", ""),
+            "E-Mail": "",
+            "Website": place.get("websiteUri", ""),
+            "Quelle": "Google Maps / Google Places",
+            "Quellenlink": place.get("googleMapsUri", ""),
+            "Prüfdatum": datetime.now(timezone.utc).date().isoformat(),
+            "Datenstatus": "Google Places-Ergebnis – Angaben vor Kontaktaufnahme prüfen",
+        })
+    return {
+        "city": city, "mode": mode, "category": category, "count": len(rows),
+        "rows": rows, "source": "Google Maps / Google Places API",
+        "source_timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
 def search_companies(
     city: str,
     mode: str,
@@ -132,6 +215,12 @@ def search_companies(
     timeout: int = 22,
 ) -> dict:
     """Search one city on demand, fail over across public Overpass instances."""
+    city = " ".join((city or "").split()).strip()
+    if not city:
+        raise ValueError("Bitte eine Stadt in NRW eingeben.")
+    google_key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+    if google_key:
+        return _google_places_search(city, mode, category, limit, google_key)
     query = build_company_query(city, mode, category, limit)
     configured = os.environ.get("OVERPASS_API_URL", "").strip()
     endpoints = []
