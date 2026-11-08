@@ -76,13 +76,14 @@ def normalise_lead_record(
     if not title:
         return None
 
-    original_url = str(
+    raw_url = str(
         record.get("url")
         or record.get("Quellenlink")
         or record.get("source_url")
         or ""
     ).strip()
-    canonical_url = _canonical_url(original_url)
+    canonical_url = _canonical_url(raw_url)
+    original_url = raw_url if canonical_url else ""
     external_id = str(
         record.get("publication_number")
         or record.get("external_id")
