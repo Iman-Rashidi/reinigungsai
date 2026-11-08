@@ -63,47 +63,46 @@ def property_text(prop: Any) -> str:
 
 
 def pages_to_rows(pages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Map Notion pages to directory rows, using the page title as a safe fallback.
+    """Map raw Notion API pages or already-flattened directory records to rows.
 
-    Notion databases can name their title property differently (e.g. Name, Firma,
-    or Unternehmen). The API page title is authoritative even when that property
-    does not match the dashboard's canonical column name.
+    Notion API pages contain a nested properties object. Some connected
+    data-source adapters return the same records already flattened into column
+    values. Support both shapes so company titles are not silently discarded.
     """
     rows: list[dict[str, str]] = []
     for page in pages:
-        properties = page.get("properties", {})
-        row = {name: property_text(value) for name, value in properties.items()}
+        if not isinstance(page, dict):
+            continue
 
-        # Prefer the canonical field, then common German/English title labels.
+        properties = page.get("properties")
+        if isinstance(properties, dict):
+            row = {name: property_text(value) for name, value in properties.items()}
+        else:
+            # A flattened record has the company and other fields at the root.
+            row = {
+                str(name): property_text(value)
+                for name, value in page.items()
+                if name not in {"id", "url", "created_time", "last_edited_time"}
+            }
+
         company_name = (
             row.get("Unternehmen", "").strip()
             or row.get("Firma", "").strip()
             or row.get("Name", "").strip()
         )
 
-        # If the title property has a custom label, discover it by its Notion type.
-        if not company_name:
-            for property_name, prop in properties.items():
+        # Discover a custom-named Notion title property when needed.
+        if not company_name and isinstance(properties, dict):
+            for prop in properties.values():
                 if isinstance(prop, dict) and isinstance(prop.get("title"), list):
                     company_name = property_text(prop).strip()
                     if company_name:
                         break
 
-        # Final fallback: Notion's page-level title extraction.
-        if not company_name:
-            title_parts = []
-            for prop in properties.values():
-                if isinstance(prop, dict) and isinstance(prop.get("title"), list):
-                    title_parts.extend(
-                        str(item.get("plain_text") or "")
-                        for item in prop["title"]
-                        if isinstance(item, dict)
-                    )
-            company_name = " ".join(part for part in title_parts if part).strip()
-
         if company_name:
             row["Unternehmen"] = company_name
             rows.append(row)
+
     return rows
 
 def complete_rows(
