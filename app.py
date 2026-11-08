@@ -23,12 +23,7 @@ from directory_data import (
     pages_to_rows,
 )
 from src.ted_search import TEDSearchError, search_active_notices
-from src.lead_discovery import (
-    LEAD_CATEGORIES,
-    LeadDiscoveryError,
-    build_manual_portal_links,
-    search_public_leads,
-)
+from src.lead_discovery import LEAD_CATEGORIES, build_manual_portal_links
 from src.lead_lifecycle import (
     compare_ad_snapshots,
     detect_ad_status,
@@ -58,17 +53,6 @@ for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PR
 def cached_company_search(city: str, mode: str, category: str, limit: int):
     """Cache city-specific live search results for at most 30 minutes."""
     return search_companies(city=city, mode=mode, category=category, limit=limit)
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def cached_public_lead_search(city: str, category: str, extra_terms: str, limit: int):
-    """Cache indexed public-web opportunity signals for at most 30 minutes."""
-    return search_public_leads(
-        city=city,
-        category=category,
-        extra_terms=extra_terms,
-        limit=limit,
-    )
-
 
 # Fail closed: the public staging service must not expose the dashboard without
 # an explicitly configured shared access password.
@@ -449,86 +433,11 @@ with lead_radar_tab:
         list(LEAD_CATEGORIES.keys()),
         key="lead_radar_category",
     )
-    radar_extra = st.text_input(
-        "Zusätzliche Suchbegriffe (optional)",
-        placeholder="z. B. Büro, Hotel, Industrie, Hausverwaltung",
-        max_chars=120,
-        key="lead_radar_extra",
+    st.info(
+        "Kostenloser Modus: automatische Websuche über externe Such-APIs ist deaktiviert, "
+        "damit keine nutzungsabhängigen API-Kosten entstehen. Die manuellen Suchlinks "
+        "weiter unten bleiben verfügbar und verwenden keine API-Anbindung dieser App."
     )
-    radar_limit = st.slider(
-        "Maximale Suchtreffer",
-        min_value=5,
-        max_value=20,
-        value=15,
-        key="lead_radar_limit",
-    )
-
-    tavily_enabled = bool(os.environ.get("TAVILY_API_KEY", "").strip())
-    if tavily_enabled:
-        st.success("Websuche ist aktiviert. Ergebnisse kommen aus dem öffentlichen Suchindex.")
-    else:
-        st.info(
-            "Automatische Websuche ist vorbereitet, aber noch nicht aktiviert. "
-            "Dafür muss TAVILY_API_KEY als Secret in Render hinterlegt werden. "
-            "Die manuellen Portal-Links unten funktionieren bereits."
-        )
-
-    if st.button("Öffentliche Webquellen durchsuchen", type="primary", key="run_lead_radar"):
-        previous_result = st.session_state.get("lead_radar_result") or {}
-        st.session_state.pop("lead_radar_result", None)
-        st.session_state.pop("lead_radar_error", None)
-        st.session_state.pop("lead_radar_storage", None)
-        st.session_state.pop("lead_radar_storage_error", None)
-        try:
-            with st.spinner("Durchsuche öffentliche Suchergebnisse und bewerte Bedarfssignale …"):
-                new_result = cached_public_lead_search(
-                    radar_city,
-                    radar_category,
-                    radar_extra,
-                    int(radar_limit),
-                )
-            try:
-                st.session_state["lead_radar_storage"] = persist_search_batch(
-                    source="public_web",
-                    query=new_result.get("query", ""),
-                    city=new_result.get("city", ""),
-                    category=new_result.get("category", ""),
-                    records=new_result.get("rows", []),
-                )
-            except SupabaseLeadStoreError as exc:
-                st.session_state["lead_radar_storage_error"] = str(exc)
-            previous_result = previous_result or {}
-            changes = []
-            same_search = (
-                previous_result.get("city") == new_result.get("city")
-                and previous_result.get("category") == new_result.get("category")
-            )
-            previous_by_url = {
-                row.get("Quellenlink", ""): row
-                for row in previous_result.get("rows", [])
-                if row.get("Quellenlink")
-            }
-            if same_search:
-                for row in new_result.get("rows", []):
-                    old_row = previous_by_url.get(row.get("Quellenlink", ""))
-                    if old_row:
-                        old_snapshot = {
-                            "title": old_row.get("Titel"), "description": old_row.get("Suchauszug"),
-                            "location": previous_result.get("city"), "category": previous_result.get("category"),
-                            "status": old_row.get("Status"), "url": old_row.get("Quellenlink"),
-                        }
-                        new_snapshot = {
-                            "title": row.get("Titel"), "description": row.get("Suchauszug"),
-                            "location": new_result.get("city"), "category": new_result.get("category"),
-                            "status": row.get("Status"), "url": row.get("Quellenlink"),
-                        }
-                        diff = compare_ad_snapshots(old_snapshot, new_snapshot)
-                        if diff["changed"]:
-                            changes.append({"title": row.get("Titel", "Ohne Titel"), **diff})
-            st.session_state["lead_radar_changes"] = changes
-            st.session_state["lead_radar_result"] = new_result
-        except (LeadDiscoveryError, ValueError) as exc:
-            st.session_state["lead_radar_error"] = str(exc)
 
     radar_error = st.session_state.get("lead_radar_error", "")
     radar_result = st.session_state.get("lead_radar_result")
