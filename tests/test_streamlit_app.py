@@ -26,13 +26,14 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertNotIn("search_public_leads(", source)
         self.assertIn("Kostenloser Modus", source)
 
-    def test_listmonk_email_marketing_tab_is_opt_in_and_draft_only(self):
+    def test_brevo_email_marketing_tab_is_consent_gated_and_draft_only(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("E-Mail-Marketing", source)
-        self.assertIn("add_consented_subscriber(", source)
+        self.assertIn("create_doi_contact(", source)
         self.assertIn("create_campaign_draft(", source)
         self.assertIn("keine Schaltfläche zum Versenden", source)
-        self.assertNotIn("preconfirm_subscriptions=True", source)
+        self.assertIn("BREVO_API_KEY", source)
+        self.assertNotIn("send_campaign(", source)
 
     def test_streamlit_requirement_is_not_html_escaped(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
