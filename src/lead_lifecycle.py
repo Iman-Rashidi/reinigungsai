@@ -117,7 +117,14 @@ def find_duplicate_pairs(
                 reasons.append("same_canonical_url")
             if left["external_id"] and left["external_id"] == right["external_id"]:
                 reasons.append("same_external_id")
-            same_location = bool(\n                left["location_key"] and right["location_key"]\n                and (left["location_key"] == right["location_key"]\n                     or left["location_key"] in right["location_key"]\n                     or right["location_key"] in left["location_key"])\n            )
+            same_location = bool(
+                left["location_key"] and right["location_key"]
+                and (
+                    left["location_key"] == right["location_key"]
+                    or left["location_key"] in right["location_key"]
+                    or right["location_key"] in left["location_key"]
+                )
+            )
             compatible_category = (
                 not left["category_key"]
                 or not right["category_key"]
