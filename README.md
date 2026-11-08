@@ -73,3 +73,17 @@ In Germany, email advertising generally requires prior express consent. The exis
 ### Integration tests
 
 Run `python -m unittest discover -s tests -v`. Listmonk API tests use mocked HTTP responses and do not send real emails. A live connection test requires a separately deployed HTTPS Listmonk instance and valid API credentials.
+
+
+### Render deployment notes
+
+A container recipe for a dedicated Listmonk Render Web Service is in `deploy/listmonk/Dockerfile`. It uses the pinned official Listmonk v6.2.0 image, initializes/upgrades the database idempotently, and binds to Render's `PORT` (default 10000). Create a separate Postgres instance in the same Frankfurt region and set its internal host, port, database, user and password as protected service environment variables.
+
+**Free-tier limitations are material:** Render Free Postgres expires 30 days after creation and has no backups. Render Free web services cannot send outbound SMTP traffic on ports 25, 465 or 587, and their filesystem is ephemeral. This setup is suitable for an integration smoke test, not a production mailing system or durable subscriber store. For production, use a paid persistent database/service or a separately hosted durable Postgres, and an SMTP relay/port that your hosting provider permits. Review the current [Render Free limitations](https://render.com/docs/free) before deployment.
+
+After the Listmonk service is live:
+1. Sign in to its admin URL and create a dedicated API user with only list, subscriber and campaign permissions needed by the Radar.
+2. Create a private or public active list with Double opt-in enabled.
+3. Set `LISTMONK_URL`, `LISTMONK_API_USER` and `LISTMONK_API_TOKEN` on the ReinigungsRadar service.
+4. Configure sender identity, domain authentication (SPF/DKIM/DMARC), unsubscribe handling and a supported SMTP relay in Listmonk.
+5. Use the Radar connection test. Keep real campaigns in draft until audience and lawful basis are checked.

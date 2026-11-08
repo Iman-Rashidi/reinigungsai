@@ -68,17 +68,29 @@ class ListmonkClientTests(unittest.TestCase):
             )
 
     def test_get_lists_sends_basic_auth_and_parses_response(self):
-        opener = FakeOpener({"data": [{"id": 7, "name": "Opt-in", "optin": "double"}]})
+        opener = FakeOpener({"data": {"results": [{"id": 7, "name": "Opt-in", "optin": "double"}], "total": 1, "per_page": "all", "page": 1}})
         lists = self.client(opener).get_lists()
         self.assertEqual(lists[0]["id"], 7)
         request, timeout = opener.requests[0]
         self.assertEqual(request.get_method(), "GET")
-        self.assertEqual(request.full_url, "https://mail.example.test/api/lists")
+        self.assertEqual(request.full_url, "https://mail.example.test/api/lists?per_page=all")
         self.assertTrue(request.get_header("Authorization").startswith("Basic "))
         self.assertGreaterEqual(timeout, 1)
 
+    def test_get_lists_handles_real_listmonk_paginated_response(self):
+        opener = FakeOpener({
+            "data": {
+                "results": [{"id": 12, "name": "Kunden", "optin": "double", "status": "active"}],
+                "total": 1,
+                "per_page": 100,
+                "page": 1,
+            }
+        })
+        lists = self.client(opener).get_lists()
+        self.assertEqual(lists, [{"id": 12, "name": "Kunden", "optin": "double", "status": "active"}])
+
     def test_add_subscriber_requires_proof_and_double_optin(self):
-        opener = FakeOpener({"data": [{"id": 7, "optin": "single"}]})
+        opener = FakeOpener({"data": {"results": [{"id": 7, "optin": "single"}]}})
         with self.assertRaises(ValueError):
             self.client(opener).add_consented_subscriber(
                 email="hello@example.test",
@@ -93,7 +105,7 @@ class ListmonkClientTests(unittest.TestCase):
 
     def test_add_subscriber_never_preconfirms_double_optin(self):
         opener = FakeOpener(
-            {"data": [{"id": 7, "name": "Opt-in", "optin": "double", "status": "active"}]},
+            {"data": {"results": [{"id": 7, "name": "Opt-in", "optin": "double", "status": "active"}]}},
             {"data": {"id": 99, "email": "hello@example.test"}},
         )
         self.client(opener).add_consented_subscriber(
@@ -113,7 +125,7 @@ class ListmonkClientTests(unittest.TestCase):
 
     def test_draft_campaign_only_targets_double_optin_lists(self):
         opener = FakeOpener(
-            {"data": [{"id": 7, "optin": "double", "status": "active"}]},
+            {"data": {"results": [{"id": 7, "optin": "double", "status": "active"}]}},
             {"data": {"id": 42, "status": "draft"}},
         )
         result = self.client(opener).create_campaign_draft(
@@ -131,7 +143,7 @@ class ListmonkClientTests(unittest.TestCase):
         self.assertNotIn("send_at", payload)
 
     def test_campaign_cannot_target_single_optin_list(self):
-        opener = FakeOpener({"data": [{"id": 3, "optin": "single"}]})
+        opener = FakeOpener({"data": {"results": [{"id": 3, "optin": "single"}]}})
         with self.assertRaises(ValueError):
             self.client(opener).create_campaign_draft(
                 name="Pilot",
