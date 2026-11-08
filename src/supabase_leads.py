@@ -128,11 +128,13 @@ def normalise_lead_record(
         "canonical_url": canonical_url,
         "original_url": original_url[:2048] if original_url else None,
         "title": title[:1000],
-        "description": _safe_text(
-            record.get("description")
-            or record.get("Suchauszug")
-            or record.get("snippet"),
-            4000,
+        "description": (
+            None if is_ted else _safe_text(
+                record.get("description")
+                or record.get("Suchauszug")
+                or record.get("snippet"),
+                4000,
+            )
         ),
         "location": _safe_text(
             record.get("location")
