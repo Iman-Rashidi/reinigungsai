@@ -483,27 +483,32 @@ with lead_radar_tab:
                 )
             previous_result = st.session_state.get("lead_radar_result") or {}
             changes = []
+            same_search = (
+                previous_result.get("city") == new_result.get("city")
+                and previous_result.get("category") == new_result.get("category")
+            )
             previous_by_url = {
                 row.get("Quellenlink", ""): row
                 for row in previous_result.get("rows", [])
                 if row.get("Quellenlink")
             }
-            for row in new_result.get("rows", []):
-                old_row = previous_by_url.get(row.get("Quellenlink", ""))
-                if old_row:
-                    old_snapshot = {
-                        "title": old_row.get("Titel"), "description": old_row.get("Suchauszug"),
-                        "location": previous_result.get("city"), "category": previous_result.get("category"),
-                        "status": old_row.get("Status"), "url": old_row.get("Quellenlink"),
-                    }
-                    new_snapshot = {
-                        "title": row.get("Titel"), "description": row.get("Suchauszug"),
-                        "location": new_result.get("city"), "category": new_result.get("category"),
-                        "status": row.get("Status"), "url": row.get("Quellenlink"),
-                    }
-                    diff = compare_ad_snapshots(old_snapshot, new_snapshot)
-                    if diff["changed"]:
-                        changes.append({"title": row.get("Titel", "Ohne Titel"), **diff})
+            if same_search:
+                for row in new_result.get("rows", []):
+                    old_row = previous_by_url.get(row.get("Quellenlink", ""))
+                    if old_row:
+                        old_snapshot = {
+                            "title": old_row.get("Titel"), "description": old_row.get("Suchauszug"),
+                            "location": previous_result.get("city"), "category": previous_result.get("category"),
+                            "status": old_row.get("Status"), "url": old_row.get("Quellenlink"),
+                        }
+                        new_snapshot = {
+                            "title": row.get("Titel"), "description": row.get("Suchauszug"),
+                            "location": new_result.get("city"), "category": new_result.get("category"),
+                            "status": row.get("Status"), "url": row.get("Quellenlink"),
+                        }
+                        diff = compare_ad_snapshots(old_snapshot, new_snapshot)
+                        if diff["changed"]:
+                            changes.append({"title": row.get("Titel", "Ohne Titel"), **diff})
             st.session_state["lead_radar_changes"] = changes
             st.session_state["lead_radar_result"] = new_result
         except (LeadDiscoveryError, ValueError) as exc:
