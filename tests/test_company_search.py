@@ -57,11 +57,10 @@ class CompanySearchTests(unittest.TestCase):
             ]
         }
         with patch("src.company_search.search_overture_companies", return_value=[]):
-            with patch("src.company_search.search_overture_companies", return_value=[]):
             with patch("src.company_search.urlopen", return_value=FakeResponse(payload)):
-            result = company_search.search_companies(
-                "Köln", "Kunden", "Büros und Unternehmen", limit=10
-            )
+                result = company_search.search_companies(
+                    "Köln", "Kunden", "Büros und Unternehmen", limit=10
+                )
         self.assertEqual(result["city"], "Köln")
         self.assertEqual([row["Unternehmen"] for row in result["rows"]], ["Kölner Büro"])
         self.assertEqual(result["rows"][0]["Stadt"], "Köln")
@@ -69,12 +68,13 @@ class CompanySearchTests(unittest.TestCase):
     def test_google_places_key_is_ignored_and_never_called(self):
         payload = {"elements": []}
         with patch.dict(os.environ, {"GOOGLE_MAPS_API_KEY": "must-not-be-used"}):
-            with patch(
-                "src.company_search.urlopen", return_value=FakeResponse(payload)
-            ) as mocked_urlopen:
-                company_search.search_companies(
-                    "Köln", "Kunden", "Büros und Unternehmen", limit=10
-                )
+            with patch("src.company_search.search_overture_companies", return_value=[]):
+                with patch(
+                    "src.company_search.urlopen", return_value=FakeResponse(payload)
+                ) as mocked_urlopen:
+                    company_search.search_companies(
+                        "Köln", "Kunden", "Büros und Unternehmen", limit=10
+                    )
         request = mocked_urlopen.call_args.args[0]
         free_hosts = (
             "ovp.dresel.systems",
