@@ -10,6 +10,7 @@ import os
 import re
 
 from src.access_control import password_matches
+from src.steuepilot_sso import verify_sso_token
 
 import streamlit as st
 
@@ -70,20 +71,30 @@ def cached_public_lead_search(city: str, category: str, extra_terms: str, limit:
     )
 
 
-# Fail closed: the public staging service must not expose the dashboard without
-# an explicitly configured shared access password.
+# Staging SSO from SteuerPilot Pro. The short-lived token is signed server-side;
+# the shared secret is only stored in Render environment variables, never in the URL.
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+SSO_SECRET = os.environ.get("STEUEERPILOT_RADAR_SSO_SECRET", "").strip()
 AUTH_KEY = "reinigungsradar_authenticated"
 
-if not APP_PASSWORD:
-    st.title("📒 ReinigungsRadar NRW")
-    st.error(
-        "Dashboard gesperrt: Das geschützte Render-Secret APP_PASSWORD fehlt. "
-        "Bitte zuerst in Render als Secret konfigurieren."
-    )
-    st.stop()
+if not st.session_state.get(AUTH_KEY, False):
+    sso_token = st.query_params.get("sso", "")
+    sso_claims = verify_sso_token(sso_token, SSO_SECRET) if sso_token and SSO_SECRET else None
+    if sso_claims:
+        st.session_state[AUTH_KEY] = True
+        st.session_state["reinigungsradar_auth_method"] = "steuerpilot_sso"
+        # Remove the short-lived credential from the visible iframe URL immediately.
+        st.query_params.clear()
 
 if not st.session_state.get(AUTH_KEY, False):
+    if not APP_PASSWORD:
+        st.title("📒 ReinigungsRadar NRW")
+        st.error(
+            "Dashboard gesperrt: Weder ein gültiger SteuerPilot-SSO-Zugang "
+            "noch das geschützte Render-Secret APP_PASSWORD ist verfügbar."
+        )
+        st.stop()
+
     st.title("📒 ReinigungsRadar NRW")
     st.caption("Geschützter Staging-Zugang")
     with st.form("reinigungsradar_login"):
@@ -92,6 +103,7 @@ if not st.session_state.get(AUTH_KEY, False):
     if login_submitted:
         if password_matches(entered_password, APP_PASSWORD):
             st.session_state[AUTH_KEY] = True
+            st.session_state["reinigungsradar_auth_method"] = "password"
             st.rerun()
         else:
             st.error("Das Zugangspasswort ist nicht korrekt.")
