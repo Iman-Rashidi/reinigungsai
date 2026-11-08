@@ -47,16 +47,6 @@ PROVIDER_CATEGORIES = {
         'nwr["name"]["service"="cleaning"](area.searchArea);',
         'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
     ],
-    "Sicherheitsdienste": [
-        'nwr["name"]["office"="security"](area.searchArea);',
-        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst",i](area.searchArea);',
-    ],
-    "Alle Anbieter": [
-        'nwr["name"]["craft"="cleaning"](area.searchArea);',
-        'nwr["name"]["office"~"cleaning|security"](area.searchArea);',
-        'nwr["name"]["service"="cleaning"](area.searchArea);',
-        'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning|Sicherheitsdienst|Security|Wachdienst",i](area.searchArea);',
-    ],
 }
 
 
