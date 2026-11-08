@@ -177,8 +177,8 @@ def _city_key(value: str) -> str:
     text = str(value or "").strip().casefold().replace("ß", "ss")
     text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text if not unicodedata.combining(char))
-    text = re.sub(r"^(?:kreisfreie\\s+stadt|landeshauptstadt|stadt)\\s+", "", text)
-    text = re.sub(r"\\s*,?\\s*(?:kreisfreie\\s+stadt|stadt)$", "", text)
+    text = re.sub(r"^(?:kreisfreie\s+stadt|landeshauptstadt|stadt)\s+", "", text)
+    text = re.sub(r"\s*,?\s*(?:kreisfreie\s+stadt|stadt)$", "", text)
     return re.sub(r"[^a-z0-9]+", "", text)
 
 
@@ -186,97 +186,6 @@ def _same_city(candidate: str, requested: str) -> bool:
     """Return True only when a source explicitly identifies the requested city."""
     requested_key = _city_key(requested)
     return bool(requested_key and _city_key(candidate) == requested_key)
-
-def _photon_search(city: str, mode: str, category: str, limit: int, api_key: str) -> dict:
-    """Search Google Places Text Search (New); requires a configured Places API key."""
-    if mode == "Anbieter":
-        search_term = {
-            "Reinigungsunternehmen": "Gebäudereinigungsunternehmen Reinigungsservice",
-            "Sicherheitsdienste": "Sicherheitsdienst Bewachungsunternehmen Wachdienst",
-            "Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
-            "Bauunternehmen": "Bauunternehmen Baugewerbe Bauleistungen",
-        }.get(category, "Gebäudereinigungsunternehmen Reinigungsservice")
-    else:
-        search_term = {
-            "Alle passenden Standorte": "Unternehmen Büro Industrie Gewerbe",
-            "Büros und Unternehmen": "Bürogebäude Unternehmen Firmenstandort",
-            "Handel und Einzelhandel": "Einkaufszentrum Einzelhandel Geschäft",
-            "Hotels und Beherbergung": "Hotel",
-            "Gastronomie": "Restaurant Café",
-            "Gesundheit": "Krankenhaus Klinik Arztpraxis",
-            "Industrie und Gewerbe": "Industrieunternehmen Gewerbepark Fabrik",
-            "Reinigung": "Gebäudereinigung Reinigungsunternehmen Reinigungsservice",
-            "Sicherheit und Bewachung": "Sicherheitsdienst Sicherheitsunternehmen Security Wachdienst Bewachung Objektschutz Werkschutz Veranstaltungsschutz",
-            "Service und Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
-            "Bauunternehmen und Baugewerbe": "Bauunternehmen Baugewerbe Bauleistungen Hochbau Tiefbau",
-        }.get(category, "Unternehmen")
-    body = json.dumps({
-        "textQuery": f"{search_term} in {city}, Nordrhein-Westfalen, Deutschland",
-        "pageSize": min(max(int(limit), 1), 20),
-        "languageCode": "de",
-        "regionCode": "DE",
-    }).encode("utf-8")
-    request = Request(
-        "https://places.googleapis.com/v1/places:searchText",
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": api_key,
-            "X-Goog-FieldMask": (
-                "places.id,places.displayName,places.formattedAddress,"
-                "places.addressComponents,places.websiteUri,places.nationalPhoneNumber,"
-                "places.googleMapsUri,places.location,places.types"
-            ),
-            "Accept": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=25) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise CompanySearchError(f"Google Places API meldet HTTP {exc.code}: {detail}") from exc
-    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        raise CompanySearchError(f"Google Places API ist momentan nicht erreichbar: {exc}") from exc
-
-    rows = []
-    for place in payload.get("places", []):
-        name = (place.get("displayName") or {}).get("text", "").strip()
-        if not name:
-            continue
-        components = place.get("addressComponents") or []
-        city_name = ""
-        postcode = ""
-        for component in components:
-            types = component.get("types") or []
-            if any(t in types for t in ("locality", "postal_town")):
-                city_name = component.get("longText", "")
-            if "postal_code" in types:
-                postcode = component.get("longText", "")
-        if not city_name:
-            # Keep the selected municipality as fallback, never the pilot city.
-            city_name = city
-        rows.append({
-            "Unternehmen": name,
-            "Branche / Typ": ", ".join((place.get("types") or [])[:3]) or category,
-            "Stadt": city_name,
-            "Adresse": place.get("formattedAddress", ""),
-            "PLZ": postcode,
-            "Telefon": place.get("nationalPhoneNumber", ""),
-            "E-Mail": "",
-            "Website": place.get("websiteUri", ""),
-            "Quelle": "Google Maps / Google Places",
-            "Quellenlink": place.get("googleMapsUri", ""),
-            "Prüfdatum": datetime.now(timezone.utc).date().isoformat(),
-            "Datenstatus": "Google Places-Ergebnis – Angaben vor Kontaktaufnahme prüfen",
-        })
-    return {
-        "city": city, "mode": mode, "category": category, "count": len(rows),
-        "rows": rows, "source": "Google Maps / Google Places API",
-        "source_timestamp": datetime.now(timezone.utc).isoformat(),
-    }
 
 def _photon_search(city: str, mode: str, category: str, limit: int, timeout: int) -> dict:
     """Fallback search against Photon public OSM index, at low request volume."""
