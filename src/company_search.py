@@ -1,540 +1,355 @@
-"""Two-directory NRW dashboard for ReinigungsRadar.
-
-Read-only Notion integration. Separate data sources:
-- NOTION_DATA_SOURCE_ID: prospective private-sector customers
-- PROVIDER_DATA_SOURCE_ID: cleaning/security service providers
-"""
+"""On-demand, read-only discovery of business locations from OpenStreetMap."""
 from __future__ import annotations
 
+import json
 import os
 import re
+from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
-from src.access_control import password_matches
+OVERPASS_DEFAULT_URL = "https://overpass.private.coffee/api/interpreter"
+USER_AGENT = "ReinigungsRadarNRW/1.0 (on-demand business directory discovery)"
 
-import streamlit as st
+NRW_CITIES = [
+    "Aachen", "Bielefeld", "Bochum", "Bonn", "Bottrop", "Dortmund",
+    "Duisburg", "Düren", "Düsseldorf", "Essen", "Gelsenkirchen",
+    "Krefeld", "Leverkusen", "Mönchengladbach", "Mülheim an der Ruhr",
+    "Münster", "Neuss", "Oberhausen", "Paderborn", "Recklinghausen",
+    "Siegen", "Solingen", "Viersen", "Witten", "Wuppertal",
+]
 
-from notion_reader import DEFAULT_DATA_SOURCE_ID, NotionAPIError, query_data_source
-from directory_data import (
-    CUSTOMER_COLUMNS,
-    PROVIDER_COLUMNS,
-    complete_rows,
-    csv_bytes,
-    filter_rows,
-    pages_to_rows,
-)
-from src.ted_search import TEDSearchError, search_active_notices
-from src.company_search import (
-    CUSTOMER_CATEGORIES,
-    PROVIDER_CATEGORIES,
-    CompanySearchError,
-    search_companies,
-)
+CUSTOMER_CATEGORIES = {
+    "Alle passenden Standorte": [
+        'nwr["name"]["office"](area.searchArea);',
+        'nwr["name"]["shop"](area.searchArea);',
+        'nwr["name"]["tourism"~"hotel|guest_house"](area.searchArea);',
+        'nwr["name"]["amenity"~"restaurant|cafe|hospital|clinic|doctors|dentist"](area.searchArea);',
+        'nwr["name"]["landuse"="industrial"](area.searchArea);',
+        'nwr["name"]["industrial"](area.searchArea);',
+    ],
+    "Büros und Unternehmen": ['nwr["name"]["office"](area.searchArea);'],
+    "Handel und Einzelhandel": ['nwr["name"]["shop"](area.searchArea);'],
+    "Hotels und Beherbergung": ['nwr["name"]["tourism"~"hotel|guest_house"](area.searchArea);'],
+    "Gastronomie": ['nwr["name"]["amenity"~"restaurant|cafe"](area.searchArea);'],
+    "Gesundheit": ['nwr["name"]["amenity"~"hospital|clinic|doctors|dentist"](area.searchArea);'],
+    "Industrie und Gewerbe": [
+        'nwr["name"]["landuse"="industrial"](area.searchArea);',
+        'nwr["name"]["industrial"](area.searchArea);',
+    ],
+    "Reinigung": [
+        'nwr["name"]["craft"="cleaning"](area.searchArea);',
+        'nwr["name"]["office"="cleaning"](area.searchArea);',
+        'nwr["name"]["service"="cleaning"](area.searchArea);',
+        'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
+    ],
+    "Sicherheit und Bewachung": [
+        'nwr["name"]["office"="security"](area.searchArea);',
+        'nwr["name"]["craft"="security"](area.searchArea);',
+        'nwr["name"]["security"](area.searchArea);',
+        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst|Bewachung",i](area.searchArea);',
+    ],
+    "Service und Facility Management": [
+        'nwr["name"]["office"="facility_management"](area.searchArea);',
+        'nwr["name"]["service"="facility_management"](area.searchArea);',
+        'nwr["name"~"Facility.?Management|Gebäudeservice|Hausmeisterservice|Industrieservice",i](area.searchArea);',
+    ],
+    "Bauunternehmen und Baugewerbe": [
+        'nwr["name"]["office"="construction"](area.searchArea);',
+        'nwr["name"]["construction"](area.searchArea);',
+        'nwr["name"~"Bauunternehmen|Bau GmbH|Baugesellschaft|Hochbau|Tiefbau|Bauleistungen",i](area.searchArea);',
+    ],
+}
 
-st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
+PROVIDER_CATEGORIES = {
+    "Reinigungsunternehmen": [
+        'nwr["name"]["craft"="cleaning"](area.searchArea);',
+        'nwr["name"]["office"="cleaning"](area.searchArea);',
+        'nwr["name"]["service"="cleaning"](area.searchArea);',
+        'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
+    ],
+    "Sicherheitsdienste": [
+        'nwr["name"]["office"="security"](area.searchArea);',
+        'nwr["name"]["craft"="security"](area.searchArea);',
+        'nwr["name"]["security"](area.searchArea);',
+        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst|Bewachung",i](area.searchArea);',
+    ],
+    "Facility Management": [
+        'nwr["name"]["office"="facility_management"](area.searchArea);',
+        'nwr["name"]["service"="facility_management"](area.searchArea);',
+        'nwr["name"~"Facility.?Management|Gebäudeservice|Hausmeisterservice|Industrieservice",i](area.searchArea);',
+    ],
+    "Bauunternehmen": [
+        'nwr["name"]["office"="construction"](area.searchArea);',
+        'nwr["name"]["construction"](area.searchArea);',
+        'nwr["name"~"Bauunternehmen|Bau GmbH|Baugesellschaft|Hochbau|Tiefbau|Bauleistungen",i](area.searchArea);',
+    ],
+}
 
-for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
-    if not os.environ.get(secret_name):
-        try:
-            value = st.secrets.get(secret_name)
-        except Exception:
-            value = None
+
+class CompanySearchError(RuntimeError):
+    """Raised when an OpenStreetMap/Overpass search fails."""
+
+
+def build_company_query(city: str, mode: str, category: str, limit: int = 80) -> str:
+    """Build a bounded Overpass query for any named municipality inside NRW."""
+    city = " ".join((city or "").split())
+    if (
+        len(city) < 2
+        or len(city) > 80
+        or not re.fullmatch(r"[\wÄÖÜäöüß .,'()\-]+", city, flags=re.UNICODE)
+    ):
+        raise ValueError("Bitte einen gültigen Stadt- oder Gemeindenamen in NRW eingeben.")
+    category_map = PROVIDER_CATEGORIES if mode == "Anbieter" else CUSTOMER_CATEGORIES
+    if category not in category_map:
+        raise ValueError("Die ausgewählte Kategorie ist ungültig.")
+    safe_city = city.replace("\\", "\\\\").replace('"', '\\"')
+    safe_limit = max(5, min(int(limit), 100))
+    selectors = "\n".join(category_map[category])
+    return (
+        '[out:json][timeout:25];\n'
+        'area["boundary"="administrative"]["name"="Nordrhein-Westfalen"]["admin_level"="4"]->.nrw;\n'
+        f'area["boundary"="administrative"]["name"="{safe_city}"]["admin_level"~"6|7|8"](area.nrw)->.searchArea;\n'
+        '(\n' + selectors + '\n);\n'
+        f'out center tags {safe_limit};'
+    )
+
+
+def _best_tag(tags: dict, *keys: str) -> str:
+    for key in keys:
+        value = tags.get(key)
         if value:
-            os.environ[secret_name] = str(value)
+            return str(value).strip()
+    return ""
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def cached_company_search(city: str, mode: str, category: str, limit: int):
-    """Cache city-specific live search results for at most 30 minutes."""
-    return search_companies(city=city, mode=mode, category=category, limit=limit)
+def _category_label(tags: dict, mode: str) -> str:
+    for key in ("office", "craft", "shop", "tourism", "amenity", "industrial", "landuse", "service"):
+        value = tags.get(key)
+        if value:
+            return f"{key}: {value}"
+    return "Standort laut OpenStreetMap" if mode == "Kunden" else "Dienstleister laut OpenStreetMap"
 
 
-# Fail closed: the public staging service must not expose the dashboard without
-# an explicitly configured shared access password.
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
-AUTH_KEY = "reinigungsradar_authenticated"
+def _normalise_element(element: dict, city: str, mode: str) -> dict[str, str]:
+    tags = element.get("tags") or {}
+    street = _best_tag(tags, "addr:street")
+    house_number = _best_tag(tags, "addr:housenumber")
+    postcode = _best_tag(tags, "addr:postcode")
+    address = " ".join(part for part in (street, house_number) if part)
+    if postcode:
+        address = f"{postcode} {address}".strip()
+    element_type = str(element.get("type") or "")
+    element_id = str(element.get("id") or "")
+    osm_url = f"https://www.openstreetmap.org/{element_type}/{element_id}" if element_type and element_id else "https://www.openstreetmap.org/"
+    website = _best_tag(tags, "contact:website", "website", "url")
+    if website and not website.startswith(("https://", "http://")):
+        website = "https://" + website
+    return {
+        "Unternehmen": _best_tag(tags, "name"),
+        "Branche / Typ": _category_label(tags, mode),
+        "Stadt": _best_tag(tags, "addr:city") or city,
+        "Adresse": address,
+        "PLZ": postcode,
+        "Telefon": _best_tag(tags, "contact:phone", "phone"),
+        "E-Mail": _best_tag(tags, "contact:email", "email"),
+        "Ansprechpartner": _best_tag(tags, "contact:person", "contact:name", "contact:individual"),
+        "Funktion Ansprechpartner": _best_tag(tags, "contact:role", "contact:job_title", "contact:position", "contact:title"),
+        "Website": website,
+        "Quelle": "OpenStreetMap",
+        "Quellenlink": osm_url,
+        "Prüfdatum": datetime.now(timezone.utc).date().isoformat(),
+        "Datenstatus": "Öffentlicher Karteneintrag – nicht unabhängig verifiziert",
+    }
 
-if not APP_PASSWORD:
-    st.title("📒 ReinigungsRadar NRW")
-    st.error(
-        "Dashboard gesperrt: Das geschützte Render-Secret APP_PASSWORD fehlt. "
-        "Bitte zuerst in Render als Secret konfigurieren."
-    )
-    st.stop()
 
-if not st.session_state.get(AUTH_KEY, False):
-    st.title("📒 ReinigungsRadar NRW")
-    st.caption("Geschützter Staging-Zugang")
-    with st.form("reinigungsradar_login"):
-        entered_password = st.text_input("Zugangspasswort", type="password")
-        login_submitted = st.form_submit_button("Anmelden")
-    if login_submitted:
-        if password_matches(entered_password, APP_PASSWORD):
-            st.session_state[AUTH_KEY] = True
-            st.rerun()
-        else:
-            st.error("Das Zugangspasswort ist nicht korrekt.")
-    st.stop()
 
-st.title("📒 ReinigungsRadar NRW")
-st.caption(
-    "Zwei getrennte Firmenverzeichnisse · NRW-Zielgebiet · vorhandener Pilotdatenbestand "
-    "aktuell mit Schwerpunkt Mönchengladbach"
-)
-st.info(
-    "Interner MVP mit read-only Notion-Anbindung. Keine automatische Kontaktaufnahme "
-    "und keine Änderung an Notion-Datensätzen."
-)
-st.warning(
-    "APP_PASSWORD bietet nur einen gemeinsamen Staging-Zugang und ersetzt keine "
-    "produktive Benutzerverwaltung. Vor echten personenbezogenen Daten müssen "
-    "individuelle Zugriffe, Mandantentrennung und Datenschutz geprüft sein. "
-    "Öffentliche Kontaktdaten sind keine Einwilligung für Werbeansprache."
-)
-
-with st.sidebar:
-    if st.button("Abmelden"):
-        st.session_state[AUTH_KEY] = False
-        st.rerun()
-    st.header("Filter")
-    st.text_input("Bundesland", value="Nordrhein-Westfalen (NRW)", disabled=True)
-    city_filter = st.text_input("Stadt enthält", placeholder="z. B. Viersen")
-    category_filter = st.text_input("Branche / Dienstleistung enthält")
-    search_text = st.text_input("Freitextsuche", placeholder="Firma, Ort, Website …")
-
-if st.button("Beide Verzeichnisse laden", type="primary"):
-    token = os.environ.get("NOTION_TOKEN", "").strip()
-    customer_id = (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip()
-    provider_id = os.environ.get("PROVIDER_DATA_SOURCE_ID", "").strip()
-
-    st.session_state["customer_rows"] = []
-    st.session_state["provider_rows"] = []
-
-    if not token:
-        st.error("NOTION_TOKEN fehlt. Bitte in Render unter Environment Variables konfigurieren.")
+def _google_places_search(city: str, mode: str, category: str, limit: int, api_key: str) -> dict:
+    """Search Google Places Text Search (New); requires a configured Places API key."""
+    if mode == "Anbieter":
+        search_term = {
+            "Reinigungsunternehmen": "Gebäudereinigungsunternehmen Reinigungsservice",
+            "Sicherheitsdienste": "Sicherheitsdienst Bewachungsunternehmen Wachdienst",
+            "Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
+            "Bauunternehmen": "Bauunternehmen Baugewerbe Bauleistungen",
+        }.get(category, "Gebäudereinigungsunternehmen Reinigungsservice")
     else:
-        errors = []
-        customer_loaded = False
-        provider_loaded = False
-        with st.spinner("Lese beide getrennten Notion-Datenquellen …"):
-            if customer_id:
-                try:
-                    customer_pages = query_data_source(customer_id)
-                    st.session_state["customer_rows"] = pages_to_rows(customer_pages)
-                    customer_loaded = True
-                except NotionAPIError as exc:
-                    errors.append(f"Kundenverzeichnis: {exc}")
-            else:
-                errors.append("NOTION_DATA_SOURCE_ID fehlt.")
-
-            if provider_id:
-                try:
-                    provider_pages = query_data_source(provider_id)
-                    st.session_state["provider_rows"] = pages_to_rows(provider_pages)
-                    provider_loaded = True
-                except NotionAPIError as exc:
-                    errors.append(f"Anbieter-Verzeichnis: {exc}")
-            else:
-                errors.append("PROVIDER_DATA_SOURCE_ID fehlt.")
-
-        for error in errors:
-            st.error(f"Notion-Verbindung: {error}")
-
-        if customer_loaded and provider_loaded and not errors:
-            st.success(
-                "Beide Datenquellen wurden erfolgreich und getrennt gelesen. "
-                "Notion-Datensätze wurden nicht verändert."
-            )
-            st.caption(
-                f"Kunden: {len(st.session_state['customer_rows'])} · "
-                f"Anbieter: {len(st.session_state['provider_rows'])}"
-            )
-        elif customer_loaded or provider_loaded:
-            st.warning(
-                "Nur ein Teil der Datenquellen konnte geladen werden. "
-                "Die erfolgreiche Liste bleibt verfügbar; Details stehen oben."
-            )
-
-
-customer_rows = st.session_state.get("customer_rows", [])
-provider_rows = st.session_state.get("provider_rows", [])
-customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
-provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
-
-customer_tab, provider_tab, discovery_tab, tender_tab, setup_tab = st.tabs([
-    "🏢 Kundenverzeichnis",
-    "🛡️ Anbieter-Verzeichnis",
-    "🔎 Neue Firmen finden",
-    "📄 Ausschreibungen (TED)",
-    "⚙️ Datenquellen",
-])
-
-with customer_tab:
-    st.subheader("Private Unternehmen mit möglichem Bedarf")
-    st.caption(
-        "Büros, Industrie, Handel, Hotels, Gastronomie, private Gesundheitsunternehmen, "
-        "Immobilienverwaltung und weitere private Einrichtungen."
+        search_term = {
+            "Alle passenden Standorte": "Unternehmen Büro Industrie Gewerbe",
+            "Büros und Unternehmen": "Bürogebäude Unternehmen Firmenstandort",
+            "Handel und Einzelhandel": "Einkaufszentrum Einzelhandel Geschäft",
+            "Hotels und Beherbergung": "Hotel",
+            "Gastronomie": "Restaurant Café",
+            "Gesundheit": "Krankenhaus Klinik Arztpraxis",
+            "Industrie und Gewerbe": "Industrieunternehmen Gewerbepark Fabrik",
+            "Reinigung": "Gebäudereinigung Reinigungsunternehmen Reinigungsservice",
+            "Sicherheit und Bewachung": "Sicherheitsdienst Bewachungsunternehmen Wachdienst",
+            "Service und Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
+            "Bauunternehmen und Baugewerbe": "Bauunternehmen Baugewerbe Bauleistungen Hochbau Tiefbau",
+        }.get(category, "Unternehmen")
+    body = json.dumps({
+        "textQuery": f"{search_term} in {city}, Nordrhein-Westfalen, Deutschland",
+        "pageSize": min(max(int(limit), 1), 20),
+        "languageCode": "de",
+        "regionCode": "DE",
+    }).encode("utf-8")
+    request = Request(
+        "https://places.googleapis.com/v1/places:searchText",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": (
+                "places.id,places.displayName,places.formattedAddress,"
+                "places.addressComponents,places.websiteUri,places.nationalPhoneNumber,"
+                "places.googleMapsUri,places.location,places.types"
+            ),
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
     )
-    visible = filter_rows(
-        customer_rows, city_filter, category_filter, search_text, "Branche"
-    )
-    st.metric("Kunden-Datensätze", len(customer_rows))
-    st.dataframe(visible, use_container_width=True, hide_index=True)
-    st.download_button(
-        "Kundenverzeichnis als CSV exportieren",
-        data=csv_bytes(visible, CUSTOMER_COLUMNS),
-        file_name="reinigungsradar_nrw_kunden.csv",
-        mime="text/csv",
-        disabled=not visible,
-    )
-    if not (os.environ.get("NOTION_DATA_SOURCE_ID") or DEFAULT_DATA_SOURCE_ID).strip():
-        st.warning("NOTION_DATA_SOURCE_ID ist nicht konfiguriert.")
+    try:
+        with urlopen(request, timeout=25) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise CompanySearchError(f"Google Places API meldet HTTP {exc.code}: {detail}") from exc
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise CompanySearchError(f"Google Places API ist momentan nicht erreichbar: {exc}") from exc
 
-with provider_tab:
-    st.subheader("Anbieter für Reinigung und Security")
-    st.caption("Eigenständiges Verzeichnis für Dienstleister, mögliche Partner und Marktübersicht.")
-    visible = filter_rows(
-        provider_rows, city_filter, category_filter, search_text, "Dienstleistung"
-    )
-    st.metric("Anbieter-Datensätze", len(provider_rows))
-    st.dataframe(visible, use_container_width=True, hide_index=True)
-    st.download_button(
-        "Anbieter-Verzeichnis als CSV exportieren",
-        data=csv_bytes(visible, PROVIDER_COLUMNS),
-        file_name="reinigungsradar_nrw_anbieter.csv",
-        mime="text/csv",
-        disabled=not visible,
-    )
-    if not os.environ.get("PROVIDER_DATA_SOURCE_ID"):
-        st.warning(
-            "PROVIDER_DATA_SOURCE_ID fehlt. Das Anbieter-Verzeichnis ist noch nicht "
-            "mit einer eigenen Notion-Datenbank verbunden."
+    rows = []
+    for place in payload.get("places", []):
+        name = (place.get("displayName") or {}).get("text", "").strip()
+        if not name:
+            continue
+        components = place.get("addressComponents") or []
+        city_name = ""
+        postcode = ""
+        for component in components:
+            types = component.get("types") or []
+            if any(t in types for t in ("locality", "postal_town")):
+                city_name = component.get("longText", "")
+            if "postal_code" in types:
+                postcode = component.get("longText", "")
+        if not city_name:
+            # Keep the selected municipality as fallback, never the pilot city.
+            city_name = city
+        rows.append({
+            "Unternehmen": name,
+            "Branche / Typ": ", ".join((place.get("types") or [])[:3]) or category,
+            "Stadt": city_name,
+            "Adresse": place.get("formattedAddress", ""),
+            "PLZ": postcode,
+            "Telefon": place.get("nationalPhoneNumber", ""),
+            "E-Mail": "",
+            "Website": place.get("websiteUri", ""),
+            "Quelle": "Google Maps / Google Places",
+            "Quellenlink": place.get("googleMapsUri", ""),
+            "Prüfdatum": datetime.now(timezone.utc).date().isoformat(),
+            "Datenstatus": "Google Places-Ergebnis – Angaben vor Kontaktaufnahme prüfen",
+        })
+    return {
+        "city": city, "mode": mode, "category": category, "count": len(rows),
+        "rows": rows, "source": "Google Maps / Google Places API",
+        "source_timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+def search_companies(
+    city: str,
+    mode: str,
+    category: str,
+    limit: int = 80,
+    timeout: int = 22,
+) -> dict:
+    """Search one city on demand, fail over across public Overpass instances."""
+    city = " ".join((city or "").split()).strip()
+    if not city:
+        raise ValueError("Bitte eine Stadt in NRW eingeben.")
+    google_key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+    if google_key:
+        return _google_places_search(city, mode, category, limit, google_key)
+    query = build_company_query(city, mode, category, limit)
+    configured = os.environ.get("OVERPASS_API_URL", "").strip()
+    endpoints = []
+    if configured:
+        endpoints.append(configured)
+    endpoints.extend([
+        # Europe-wide daily extract, independent of the main OSMF instance.
+        "https://ovp.dresel.systems/api/interpreter",
+        # Global VK Maps instance, operated independently.
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        OVERPASS_DEFAULT_URL,
+    ])
+    # Preserve order while removing duplicate endpoints.
+    endpoints = list(dict.fromkeys(endpoints))
+
+    failures: list[str] = []
+    payload = None
+    for endpoint in endpoints:
+        if not endpoint.startswith("https://"):
+            failures.append("configured endpoint is not HTTPS")
+            continue
+        request = Request(
+            endpoint,
+            data=urlencode({"data": query}).encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+            method="POST",
         )
-
-
-with discovery_tab:
-    st.subheader("Neue Firmen in NRW finden")
-    google_places_enabled = bool(os.environ.get("GOOGLE_MAPS_API_KEY", "").strip())
-    if google_places_enabled:
-        st.caption(
-            "Live-Firmensuche über Google Maps / Places API. Treffer enthalten die von Google "
-            "ermittelte Adresse, Stadt und den direkten Maps-Link."
-        )
-        st.info("Die Suche ist stadtbezogen. Quelle und Prüfdatum werden pro Treffer angezeigt; Notion bleibt unverändert.")
-    else:
-        st.caption(
-            "Live-Firmensuche über OpenStreetMap / Overpass. Für Google Maps muss "
-            "GOOGLE_MAPS_API_KEY als geschütztes Render-Secret eingerichtet werden."
-        )
-        st.warning(
-            "Google Maps ist noch nicht aktiviert. Aktuell läuft die Suche über OpenStreetMap; "
-            "die Trefferqualität und Adressabdeckung können je nach Stadt variieren."
-        )
-
-    discovery_mode = st.radio(
-        "Gesucht werden",
-        ["Kunden", "Anbieter"],
-        horizontal=True,
-        key="discovery_mode",
-    )
-    category_options = (
-        list(CUSTOMER_CATEGORIES.keys())
-        if discovery_mode == "Kunden"
-        else list(PROVIDER_CATEGORIES.keys())
-    )
-    with st.form("company_discovery_search"):
-        discovery_city = st.text_input(
-            "Stadt / Gemeinde in NRW",
-            value="Mönchengladbach",
-            max_chars=80,
-            placeholder="z. B. Viersen, Köln, Düren oder Erkelenz",
-        )
-        discovery_category = st.selectbox("Branche / Dienstleistung", category_options)
-        discovery_limit = st.slider("Maximale Treffer", min_value=10, max_value=100, value=60, step=10)
-        discovery_submitted = st.form_submit_button(
-            "Neue Firmen suchen",
-            type="primary",
-        )
-
-    if discovery_submitted:
-        st.session_state.pop("discovery_result", None)
-        st.session_state.pop("discovery_error", None)
         try:
-            with st.spinner(f"Suche öffentliche Einträge in {discovery_city} …"):
-                st.session_state["discovery_result"] = cached_company_search(
-                    discovery_city,
-                    discovery_mode,
-                    discovery_category,
-                    int(discovery_limit),
-                )
-        except (CompanySearchError, ValueError) as exc:
-            st.session_state["discovery_error"] = str(exc)
+            with urlopen(request, timeout=timeout) as response:
+                candidate = json.loads(response.read().decode("utf-8"))
+            if not isinstance(candidate, dict) or not isinstance(candidate.get("elements"), list):
+                failures.append("invalid JSON response")
+                continue
+            payload = candidate
+            break
+        except HTTPError as exc:
+            failures.append(f"{endpoint}: HTTP {exc.code}")
+        except (URLError, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", None)
+            failures.append(f"{endpoint}: {reason or type(exc).__name__}")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            failures.append(f"{endpoint}: invalid JSON")
 
-    discovery_error = st.session_state.get("discovery_error", "")
-    discovery_result = st.session_state.get("discovery_result")
-    if discovery_error:
-        st.error(f"Firmensuche fehlgeschlagen: {discovery_error}")
-    elif discovery_result:
-        found_rows = discovery_result.get("rows", [])
-        saved_rows = customer_rows if discovery_result.get("mode") == "Kunden" else provider_rows
-
-        def match_key(value: str) -> str:
-            return "".join(character for character in str(value).casefold() if character.isalnum())
-
-        def website_key(value: str) -> str:
-            return (
-                str(value or "").strip().casefold()
-                .removeprefix("https://")
-                .removeprefix("http://")
-                .removeprefix("www.")
-                .rstrip("/")
-            )
-
-        saved_names = {match_key(row.get("Unternehmen", "")) for row in saved_rows}
-        saved_websites = {website_key(row.get("Website", "")) for row in saved_rows if row.get("Website")}
-        new_rows = [
-            row for row in found_rows
-            if match_key(row.get("Unternehmen", "")) not in saved_names
-            and (not website_key(row.get("Website", "")) or website_key(row.get("Website", "")) not in saved_websites)
-        ]
-        duplicate_rows = [row for row in found_rows if row not in new_rows]
-
-        # Strict qualification: only publishable leads with both a public email
-        # and a phone contact. A gold star requires an explicitly named contact
-        # whose recorded role points to procurement/contracts/facility decisions.
-        contact_ready_rows = [
-            row for row in new_rows
-            if row.get("E-Mail", "").strip() and row.get("Telefon", "").strip()
-        ]
-        procurement_terms = re.compile(
-            r"einkauf|beschaffung|vergabe|vertrags|facility|objektleitung|"
-            r" kaufmännisch|leitung|geschäftsführ|procurement|contract",
-            re.IGNORECASE,
-        )
-        for row in contact_ready_rows:
-            role = row.get("Funktion Ansprechpartner", "")
-            person = row.get("Ansprechpartner", "")
-            row["Priorität"] = (
-                "⭐ GOLD – Ansprechpartner für Vergabe/Verträge erkennbar"
-                if person and role and procurement_terms.search(role)
-                else "Standard – Kontaktdaten vollständig"
-            )
-        gold_rows = [row for row in contact_ready_rows if row["Priorität"].startswith("⭐ GOLD")]
-        st.caption(
-            "Es werden nur neue Firmen mit öffentlicher E-Mail-Adresse und Telefonnummer angezeigt. "
-            "⭐ GOLD gibt es nur bei ausdrücklich genanntem Ansprechpartner und einer passenden "
-            "Funktionsangabe zu Einkauf, Vergabe, Verträgen oder Objektleitung."
+    if payload is None:
+        details = "; ".join(failures[-3:])
+        raise CompanySearchError(
+            "Alle öffentlichen Overpass-Server sind momentan nicht erreichbar "
+            "oder ausgelastet. " + details
         )
 
-        metric_cols = st.columns(4)
-        metric_cols[0].metric("Treffer insgesamt", len(found_rows))
-        metric_cols[1].metric("Neue Firmen mit E-Mail + Telefon", len(contact_ready_rows))
-        metric_cols[2].metric("⭐ Gold-Priorität", len(gold_rows))
-        metric_cols[3].metric("Bereits gespeichert", len(duplicate_rows))
+    elements = payload.get("elements")
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        row = _normalise_element(element, city, mode)
+        name = row["Unternehmen"].strip()
+        if not name:
+            continue
+        key = re.sub(r"[^a-z0-9]+", "", name.casefold())
+        address_key = re.sub(r"[^a-z0-9]+", "", row["Adresse"].casefold())
+        dedupe_key = f"{key}|{address_key}" if address_key else f"{key}|{row['Stadt'].casefold()}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        rows.append(row)
 
-        if contact_ready_rows:
-            st.success(f"{len(contact_ready_rows)} neue Firmen erfüllen die Mindestanforderung an Kontaktdaten.")
-            discovery_columns = [
-                "Priorität", "Unternehmen", "Branche / Typ", "Stadt", "Adresse", "PLZ",
-                "Ansprechpartner", "Funktion Ansprechpartner", "Telefon", "E-Mail",
-                "Website", "Quelle", "Quellenlink", "Prüfdatum", "Datenstatus",
-            ]
-            ordered_rows = sorted(
-                contact_ready_rows,
-                key=lambda row: (not row["Priorität"].startswith("⭐ GOLD"), row.get("Unternehmen", "").casefold()),
-            )
-            st.dataframe(ordered_rows, use_container_width=True, hide_index=True)
-            st.download_button(
-                "Neue qualifizierte Treffer als CSV exportieren",
-                data=csv_bytes(ordered_rows, discovery_columns),
-                file_name=f"reinigungsradar_qualifizierte_{discovery_result.get('mode', 'firmen').lower()}_{discovery_result.get('city', 'nrw').lower().replace(' ', '_')}.csv",
-                mime="text/csv",
-            )
-        elif new_rows:
-            st.warning(
-                "Es gibt neue Firmeneinträge, aber keiner hat gleichzeitig eine öffentliche E-Mail-Adresse "
-                "und Telefonnummer. Sie werden deshalb nicht als qualifizierte Leads angezeigt."
-            )
-        elif found_rows:
-            st.warning("Es wurden Treffer gefunden, aber alle gleichen bereits vorhandenen Namen oder Websites im Notion-Verzeichnis.")
-        else:
-            st.warning("Für diese Stadt und Kategorie wurden keine passenden öffentlichen Einträge gefunden.")
-
-        if duplicate_rows:
-            with st.expander("Bereits im Notion-Verzeichnis erkannte Einträge"):
-                st.dataframe(duplicate_rows, use_container_width=True, hide_index=True)
-
-        source_name = discovery_result.get("source", "Unbekannte Quelle")
-        st.caption(f"Quelle: {source_name} · Stadt angefragt: {discovery_result.get('city', '')}")
-        if discovery_result.get("source_timestamp"):
-            st.caption(f"Datenstand: {discovery_result['source_timestamp']}")
-        if "Google" in source_name:
-            st.markdown("[Google Maps Platform – Places API](https://developers.google.com/maps/documentation/places/web-service/text-search)")
-        else:
-            st.caption(
-                "Daten © OpenStreetMap contributors, Lizenz ODbL 1.0. Karteneinträge können "
-                "unvollständig oder veraltet sein; Unternehmensangaben vor Nutzung prüfen."
-            )
-            st.markdown("[OpenStreetMap – Copyright und Lizenz](https://www.openstreetmap.org/copyright)")
-        st.warning(
-            "Ein öffentlich eingetragener Firmenkontakt ist keine Einwilligung zur Werbung. "
-            "Datenschutz und rechtliche Voraussetzungen einer Kontaktaufnahme sind separat zu prüfen."
-        )
-    else:
-        st.caption("Noch keine Suche ausgeführt. Die Suche wird nur auf Knopfdruck gestartet und höchstens 30 Minuten zwischengespeichert.")
-
-with tender_tab:
-    st.subheader("Aktive öffentliche Ausschreibungen in NRW")
-    st.caption(
-        "Quelle: TED – Tenders Electronic Daily. Suche nach aktiven Bekanntmachungen "
-        "mit Leistungsort Nordrhein-Westfalen (NUTS-1-Code DEA)."
-    )
-    st.warning(
-        "Dieser Suchlauf deckt nur TED ab. Vergabe.NRW, DTVP, service.bund.de "
-        "und andere nationale Portale sind noch nicht angebunden. "
-        "Eine TED-Bekanntmachung ist keine automatische Eignungs- oder Zuschlagsaussage."
-    )
-
-    with st.form("ted_tender_search"):
-        tender_category = st.selectbox(
-            "Ausschreibungskategorie",
-            ["Reinigung", "Sicherheit"],
-            help="Die TED-Suche ist bewusst auf diese beiden Leistungsbereiche begrenzt.",
-        )
-        tender_keyword = {
-            "Reinigung": "Gebäudereinigung",
-            "Sicherheit": "Sicherheitsdienst",
-        }[tender_category]
-        st.caption(f"TED-Suchbegriff: {tender_keyword}")
-        tender_limit = st.number_input(
-            "Maximale Treffer",
-            min_value=5,
-            max_value=100,
-            value=25,
-            step=5,
-        )
-        tender_submitted = st.form_submit_button(
-            "Aktive TED-Ausschreibungen suchen",
-            type="primary",
-        )
-
-    if tender_submitted:
-        st.session_state["ted_notices"] = []
-        st.session_state["ted_search_error"] = ""
-        st.session_state["ted_search_ran"] = True
-        try:
-            with st.spinner("Suche aktive TED-Bekanntmachungen für NRW …"):
-                ted_result = search_active_notices(
-                    tender_keyword,
-                    limit=int(tender_limit),
-                    region="NRW",
-                )
-            st.session_state["ted_notices"] = ted_result["notices"]
-            st.session_state["ted_total"] = ted_result["total"]
-            st.session_state["ted_query"] = ted_result["query"]
-        except (TEDSearchError, ValueError) as exc:
-            st.session_state["ted_search_error"] = str(exc)
-
-    ted_error = st.session_state.get("ted_search_error", "")
-    ted_notices = st.session_state.get("ted_notices", [])
-    if ted_error:
-        st.error(f"TED-Suche fehlgeschlagen: {ted_error}")
-    elif ted_notices:
-        st.success(
-            f"{len(ted_notices)} Treffer geladen. "
-            f"TED meldet insgesamt {st.session_state.get('ted_total', len(ted_notices))} passende aktive Bekanntmachungen."
-        )
-        for notice in ted_notices:
-            publication_number = notice.get("publication_number") or "Ohne Veröffentlichungsnummer"
-            title = notice.get("title") or "Ohne Titel"
-            with st.expander(f"{publication_number} · {title}"):
-                meta_cols = st.columns(3)
-                meta_cols[0].caption("Auftraggeber")
-                meta_cols[0].write(notice.get("buyer") or "Nicht angegeben")
-                meta_cols[1].caption("Veröffentlicht")
-                meta_cols[1].write(notice.get("publication_date") or "Nicht angegeben")
-                meta_cols[2].caption("Frist")
-                meta_cols[2].write(notice.get("deadline") or "Nicht angegeben")
-
-                if notice.get("location"):
-                    st.write(f"**Leistungsort:** {notice['location']}")
-                if notice.get("description"):
-                    st.markdown("**Leistungsbeschreibung**")
-                    st.write(notice["description"])
-                if notice.get("estimated_value"):
-                    currency = notice.get("estimated_value_currency") or ""
-                    st.write(f"**Geschätzter Auftragswert:** {notice['estimated_value']} {currency}".strip())
-                if notice.get("cpv"):
-                    st.write(f"**CPV:** {notice['cpv']}")
-                if notice.get("procedure_type"):
-                    st.write(f"**Verfahren:** {notice['procedure_type']}")
-
-                if notice.get("selection_criteria"):
-                    st.markdown("**Eignungskriterien**")
-                    st.write(notice["selection_criteria"])
-                if notice.get("exclusion_criteria"):
-                    st.markdown("**Ausschlussgründe**")
-                    st.write(notice["exclusion_criteria"])
-                if notice.get("award_criteria"):
-                    st.markdown("**Zuschlagskriterien**")
-                    st.write(notice["award_criteria"])
-                if notice.get("award_weights"):
-                    st.write(f"**Gewichtung:** {notice['award_weights']}")
-
-                contact_items = [
-                    ("Kontaktstelle", notice.get("contact_point")),
-                    ("Kontaktperson", notice.get("contact_person")),
-                    ("E-Mail", notice.get("email")),
-                    ("Telefon", notice.get("phone")),
-                ]
-                present_contacts = [(label, value) for label, value in contact_items if value]
-                if present_contacts:
-                    st.markdown("**Öffentliche Kontaktdaten der Vergabestelle**")
-                    for label, value in present_contacts:
-                        st.write(f"{label}: {value}")
-
-                link_cols = st.columns(3)
-                if notice.get("url", "").startswith("https://"):
-                    link_cols[0].link_button("TED-Bekanntmachung", notice["url"])
-                if notice.get("documents_url", "").startswith("https://"):
-                    link_cols[1].link_button("Vergabeunterlagen", notice["documents_url"])
-                if notice.get("submission_url", "").startswith("https://"):
-                    link_cols[2].link_button("Einreichungsportal", notice["submission_url"])
-
-                completeness = notice.get("completeness", {})
-                st.caption(
-                    f"Datenvollständigkeit: {completeness.get('present', 0)} von "
-                    f"{completeness.get('total', 0)} Prüffeldern. "
-                    "Fehlende Angaben stehen möglicherweise nur in den Originalunterlagen."
-                )
-                st.caption(notice.get("evidence_note", "Angaben anhand der Originalbekanntmachung prüfen."))
-    elif st.session_state.get("ted_search_ran"):
-        st.info("Für diesen Suchbegriff wurden in den aktiven TED-Bekanntmachungen keine Treffer zurückgegeben.")
-    else:
-        st.info("Suchbegriff eingeben und Suche starten. Es werden nur aktive Bekanntmachungen mit Leistungsort NRW abgefragt.")
-
-with setup_tab:
-    st.subheader("Getrennte Notion-Datenbanken")
-    st.markdown(
-        "**Kundenverzeichnis**\n"
-        "- Secret: `NOTION_DATA_SOURCE_ID`\n"
-        "- Vorhandene Felder: Branche, Score, Potenzial, Status, Datenqualität, Prüfnotizen und nächste Schritte.\n\n"
-        "**Anbieter-Verzeichnis**\n"
-        "- Secret: `PROVIDER_DATA_SOURCE_ID`\n"
-        "- Vorhandene Felder: Dienstleistung, Einsatzgebiet, Zertifikate / Erlaubnisse und Datenstatus.\n\n"
-        "**Wichtiger Datenhinweis**\n"
-        "- Der vorhandene Kundenbestand ist ein Mönchengladbach-Pilot und noch keine vollständige NRW-Abdeckung.\n\n"
-        "**Ausschreibungen**\n"
-        "- Aktive TED-Bekanntmachungen mit Leistungsort NRW; weitere Vergabeportale sind noch nicht integriert."
-    )
-    st.info(
-        "Die App liest beide Datenquellen unabhängig voneinander und nur lesend. "
-        "Leere Platzhalter-Datensätze werden ausgeblendet. Der aktuelle Bestand "
-        "ist ein regionaler Pilot und noch keine vollständige NRW-Abdeckung. "
-        "Quellen, Datenqualität und Prüfdatum bleiben sichtbar; fehlende Belege "
-        "werden nicht als bestätigter Bedarf ausgegeben."
-    )
-
-st.caption(
-    "ReinigungsRadar NRW · Kunden, Anbieter und TED-Ausschreibungen getrennt · "
-    "read-only · keine automatische Kontaktaufnahme oder Angebotsabgabe."
-)
+    return {
+        "city": city,
+        "mode": mode,
+        "category": category,
+        "count": len(rows),
+        "rows": rows,
+        "source": "OpenStreetMap / Overpass API",
+        "source_timestamp": (payload.get("osm3s") or {}).get("timestamp_osm_base", ""),
+        "query": query,
+    }
