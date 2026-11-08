@@ -42,9 +42,9 @@ for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PR
             os.environ[secret_name] = str(value)
 
 
-@st.cache_data(ttl=21600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def cached_company_search(city: str, mode: str, category: str, limit: int):
-    """Cache on-demand OpenStreetMap discovery results for six hours."""
+    """Cache city-specific live search results for at most 30 minutes."""
     return search_companies(city=city, mode=mode, category=category, limit=limit)
 
 
@@ -213,14 +213,22 @@ with provider_tab:
 
 with discovery_tab:
     st.subheader("Neue Firmen in NRW finden")
-    st.caption(
-        "On-Demand-Suche nach öffentlichen Firmen- und Standort-Einträgen in OpenStreetMap. "
-        "Die Suche ergänzt den gespeicherten Notion-Bestand, ersetzt aber kein vollständiges Handelsregister."
-    )
-    st.info(
-        "Wähle eine NRW-Stadt und eine Branche. Die Suche fragt OpenStreetMap live ab, "
-        "zeigt Quelle und Prüfdatum und schreibt nichts nach Notion."
-    )
+    google_places_enabled = bool(os.environ.get("GOOGLE_MAPS_API_KEY", "").strip())
+    if google_places_enabled:
+        st.caption(
+            "Live-Firmensuche über Google Maps / Places API. Treffer enthalten die von Google "
+            "ermittelte Adresse, Stadt und den direkten Maps-Link."
+        )
+        st.info("Die Suche ist stadtbezogen. Quelle und Prüfdatum werden pro Treffer angezeigt; Notion bleibt unverändert.")
+    else:
+        st.caption(
+            "Live-Firmensuche über OpenStreetMap / Overpass. Für Google Maps muss "
+            "GOOGLE_MAPS_API_KEY als geschütztes Render-Secret eingerichtet werden."
+        )
+        st.warning(
+            "Google Maps ist noch nicht aktiviert. Aktuell läuft die Suche über OpenStreetMap; "
+            "die Trefferqualität und Adressabdeckung können je nach Stadt variieren."
+        )
 
     discovery_mode = st.radio(
         "Gesucht werden",
@@ -318,20 +326,24 @@ with discovery_tab:
             with st.expander("Bereits im Notion-Verzeichnis erkannte Einträge"):
                 st.dataframe(duplicate_rows, use_container_width=True, hide_index=True)
 
+        source_name = discovery_result.get("source", "Unbekannte Quelle")
+        st.caption(f"Quelle: {source_name} · Stadt angefragt: {discovery_result.get('city', '')}")
         if discovery_result.get("source_timestamp"):
-            st.caption(f"Stand der OpenStreetMap-Datenbank: {discovery_result['source_timestamp']}")
-        st.caption(
-            "Quelle: OpenStreetMap / Overpass API. Daten © OpenStreetMap contributors, "
-            "Lizenz ODbL 1.0. Karteneinträge können unvollständig, veraltet oder falsch kategorisiert sein; "
-            "Unternehmen und Kontaktdaten vor einer geschäftlichen Nutzung eigenständig prüfen."
-        )
-        st.markdown("[OpenStreetMap – Copyright und Lizenz](https://www.openstreetmap.org/copyright)")
+            st.caption(f"Datenstand: {discovery_result['source_timestamp']}")
+        if "Google" in source_name:
+            st.markdown("[Google Maps Platform – Places API](https://developers.google.com/maps/documentation/places/web-service/text-search)")
+        else:
+            st.caption(
+                "Daten © OpenStreetMap contributors, Lizenz ODbL 1.0. Karteneinträge können "
+                "unvollständig oder veraltet sein; Unternehmensangaben vor Nutzung prüfen."
+            )
+            st.markdown("[OpenStreetMap – Copyright und Lizenz](https://www.openstreetmap.org/copyright)")
         st.warning(
             "Ein öffentlich eingetragener Firmenkontakt ist keine Einwilligung zur Werbung. "
             "Datenschutz und rechtliche Voraussetzungen einer Kontaktaufnahme sind separat zu prüfen."
         )
     else:
-        st.caption("Noch keine Suche ausgeführt. Die Suche wird nur auf Knopfdruck gestartet und sechs Stunden zwischengespeichert.")
+        st.caption("Noch keine Suche ausgeführt. Die Suche wird nur auf Knopfdruck gestartet und höchstens 30 Minuten zwischengespeichert.")
 
 with tender_tab:
     st.subheader("Aktive öffentliche Ausschreibungen in NRW")
