@@ -41,6 +41,29 @@ class LeadLifecycleTests(unittest.TestCase):
         self.assertEqual(len(find_duplicate_pairs(records)), 1)
         self.assertEqual(normalize_lead(records[0])["url"], "https://example.de/jobs/1")
 
+    def test_empty_titles_do_not_create_fuzzy_duplicates(self):
+        records = [
+            {"title": "", "city": "Viersen", "category": "Reinigung", "source": "A"},
+            {"title": "", "city": "Viersen", "category": "Reinigung", "source": "B"},
+        ]
+        self.assertEqual(find_duplicate_pairs(records), [])
+
+    def test_unsafe_and_non_http_urls_are_not_canonicalized(self):
+        records = [
+            {"title": "Same", "url": "javascript://example.de/jobs/1", "source": "A"},
+            {"title": "Same", "url": "https://example.de/jobs/1", "source": "B"},
+        ]
+        self.assertEqual(len(find_duplicate_pairs(records)), 0)
+
+    def test_identical_external_identifier_is_a_strong_match(self):
+        records = [
+            {"title": "Unterschiedlicher Titel A", "external_id": "TED-123", "source": "A"},
+            {"title": "Unterschiedlicher Titel B", "external_id": "TED-123", "source": "B"},
+        ]
+        pairs = find_duplicate_pairs(records)
+        self.assertEqual(len(pairs), 1)
+        self.assertIn("same_external_id", pairs[0]["reasons"])
+
     def test_similar_titles_in_different_cities_are_not_duplicates(self):
         records = [
             {"title": "Gebäudereinigung gesucht", "city": "Viersen", "category": "Reinigung"},
