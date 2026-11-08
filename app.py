@@ -494,7 +494,11 @@ with lead_radar_tab:
         "Diese Links öffnen die jeweilige Plattform für eine normale manuelle Suche. "
         "Sie werden nicht automatisch ausgelesen."
     )
-    portal_links = build_manual_portal_links(radar_city, radar_category)
+    try:
+        portal_links = build_manual_portal_links(radar_city, radar_category)
+    except ValueError as exc:
+        portal_links = []
+        st.warning(str(exc))
     portal_columns = st.columns(3)
     for index, portal in enumerate(portal_links):
         with portal_columns[index % 3]:
