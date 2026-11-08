@@ -10,7 +10,7 @@ import os
 import re
 
 from src.access_control import password_matches
-from src.steuepilot_sso import verify_sso_token
+from src.steuerpilot_sso import verify_sso_token
 
 import streamlit as st
 
