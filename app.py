@@ -25,7 +25,6 @@ from directory_data import (
 from src.ted_search import TEDSearchError, search_active_notices
 from src.company_search import (
     CUSTOMER_CATEGORIES,
-    NRW_CITIES,
     PROVIDER_CATEGORIES,
     CompanySearchError,
     search_companies,
@@ -234,12 +233,12 @@ with discovery_tab:
         if discovery_mode == "Kunden"
         else list(PROVIDER_CATEGORIES.keys())
     )
-    default_city_index = NRW_CITIES.index("Mönchengladbach")
     with st.form("company_discovery_search"):
-        discovery_city = st.selectbox(
-            "Stadt in NRW",
-            NRW_CITIES,
-            index=default_city_index,
+        discovery_city = st.text_input(
+            "Stadt / Gemeinde in NRW",
+            value="Mönchengladbach",
+            max_chars=80,
+            placeholder="z. B. Viersen, Köln, Düren oder Erkelenz",
         )
         discovery_category = st.selectbox("Branche / Dienstleistung", category_options)
         discovery_limit = st.slider("Maximale Treffer", min_value=10, max_value=100, value=60, step=10)
