@@ -55,19 +55,25 @@ class CompanySearchError(RuntimeError):
 
 
 def build_company_query(city: str, mode: str, category: str, limit: int = 80) -> str:
-    """Build a bounded Overpass query for one allow-listed NRW city."""
-    if city not in NRW_CITIES:
-        raise ValueError("Bitte eine Stadt aus der NRW-Städteliste auswählen.")
+    """Build a bounded Overpass query for any named municipality inside NRW."""
+    city = " ".join((city or "").split())
+    if (
+        len(city) < 2
+        or len(city) > 80
+        or not re.fullmatch(r"[\\wÄÖÜäöüß .,'()\\-]+", city, flags=re.UNICODE)
+    ):
+        raise ValueError("Bitte einen gültigen Stadt- oder Gemeindenamen in NRW eingeben.")
     category_map = PROVIDER_CATEGORIES if mode == "Anbieter" else CUSTOMER_CATEGORIES
     if category not in category_map:
         raise ValueError("Die ausgewählte Kategorie ist ungültig.")
     safe_city = city.replace("\\", "\\\\").replace('"', '\\"')
     safe_limit = max(5, min(int(limit), 100))
-    selectors = "\n".join(category_map[category])
+    selectors = "\\n".join(category_map[category])
     return (
-        '[out:json][timeout:25];\n'
-        f'area["boundary"="administrative"]["name"="{safe_city}"]["admin_level"~"6|8"]->.searchArea;\n'
-        '(\n' + selectors + '\n);\n'
+        '[out:json][timeout:25];\\n'
+        'area["boundary"="administrative"]["name"="Nordrhein-Westfalen"]["admin_level"="4"]->.nrw;\\n'
+        f'area["boundary"="administrative"]["name"="{safe_city}"]["admin_level"~"6|7|8"](area.nrw)->.searchArea;\\n'
+        '(\\n' + selectors + '\\n);\\n'
         f'out center tags {safe_limit};'
     )
 
