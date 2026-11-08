@@ -23,6 +23,12 @@ from directory_data import (
     pages_to_rows,
 )
 from src.ted_search import TEDSearchError, search_active_notices
+from src.lead_discovery import (
+    LEAD_CATEGORIES,
+    LeadDiscoveryError,
+    build_manual_portal_links,
+    search_public_leads,
+)
 from src.company_search import (
     CUSTOMER_CATEGORIES,
     PROVIDER_CATEGORIES,
@@ -46,6 +52,16 @@ for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PR
 def cached_company_search(city: str, mode: str, category: str, limit: int):
     """Cache city-specific live search results for at most 30 minutes."""
     return search_companies(city=city, mode=mode, category=category, limit=limit)
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_public_lead_search(city: str, category: str, extra_terms: str, limit: int):
+    """Cache indexed public-web opportunity signals for at most 30 minutes."""
+    return search_public_leads(
+        city=city,
+        category=category,
+        extra_terms=extra_terms,
+        limit=limit,
+    )
 
 
 # Fail closed: the public staging service must not expose the dashboard without
@@ -160,10 +176,11 @@ provider_rows = st.session_state.get("provider_rows", [])
 customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
 provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
 
-customer_tab, provider_tab, discovery_tab, tender_tab, setup_tab = st.tabs([
+customer_tab, provider_tab, discovery_tab, lead_radar_tab, tender_tab, setup_tab = st.tabs([
     "🏢 Kundenverzeichnis",
     "🛡️ Anbieter-Verzeichnis",
     "🔎 Neue Firmen finden",
+    "🌐 Job- & Projekt-Radar",
     "📄 Ausschreibungen (TED)",
     "⚙️ Datenquellen",
 ])
@@ -378,6 +395,125 @@ with discovery_tab:
         )
     else:
         st.caption("Noch keine Suche ausgeführt. Die Suche wird nur auf Knopfdruck gestartet und höchstens 30 Minuten zwischengespeichert.")
+
+with lead_radar_tab:
+    st.subheader("Job- & Projekt-Radar für NRW")
+    st.caption(
+        "Sucht öffentliche Hinweise auf möglichen Bedarf an Reinigung, Sicherheit, "
+        "Facility Management und Bau-/Handwerksleistungen. Treffer sind Bedarfssignale, "
+        "keine bestätigten Kaufabsichten."
+    )
+
+    radar_city = st.text_input(
+        "Stadt / Region",
+        value="Mönchengladbach",
+        max_chars=80,
+        key="lead_radar_city",
+    )
+    radar_category = st.selectbox(
+        "Gesuchter Leistungsbereich",
+        list(LEAD_CATEGORIES.keys()),
+        key="lead_radar_category",
+    )
+    radar_extra = st.text_input(
+        "Zusätzliche Suchbegriffe (optional)",
+        placeholder="z. B. Büro, Hotel, Industrie, Hausverwaltung",
+        max_chars=120,
+        key="lead_radar_extra",
+    )
+    radar_limit = st.slider(
+        "Maximale Suchtreffer",
+        min_value=5,
+        max_value=20,
+        value=15,
+        key="lead_radar_limit",
+    )
+
+    tavily_enabled = bool(os.environ.get("TAVILY_API_KEY", "").strip())
+    if tavily_enabled:
+        st.success("Websuche ist aktiviert. Ergebnisse kommen aus dem öffentlichen Suchindex.")
+    else:
+        st.info(
+            "Automatische Websuche ist vorbereitet, aber noch nicht aktiviert. "
+            "Dafür muss TAVILY_API_KEY als Secret in Render hinterlegt werden. "
+            "Die manuellen Portal-Links unten funktionieren bereits."
+        )
+
+    if st.button("Öffentliche Webquellen durchsuchen", type="primary", key="run_lead_radar"):
+        st.session_state.pop("lead_radar_result", None)
+        st.session_state.pop("lead_radar_error", None)
+        try:
+            with st.spinner("Durchsuche öffentliche Suchergebnisse und bewerte Bedarfssignale …"):
+                st.session_state["lead_radar_result"] = cached_public_lead_search(
+                    radar_city,
+                    radar_category,
+                    radar_extra,
+                    int(radar_limit),
+                )
+        except (LeadDiscoveryError, ValueError) as exc:
+            st.session_state["lead_radar_error"] = str(exc)
+
+    radar_error = st.session_state.get("lead_radar_error", "")
+    radar_result = st.session_state.get("lead_radar_result")
+    if radar_error:
+        st.warning(radar_error)
+    elif radar_result:
+        radar_rows = radar_result.get("rows", [])
+        st.metric("Öffentliche Bedarfssignale gefunden", len(radar_rows))
+        if radar_rows:
+            st.dataframe(
+                radar_rows,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Quellenlink": st.column_config.LinkColumn("Originalquelle"),
+                    "Relevanz": st.column_config.NumberColumn("Relevanz", min_value=0, max_value=100),
+                },
+            )
+            radar_csv_columns = [
+                "Titel", "Domain", "Suchauszug", "Veröffentlicht", "Relevanz",
+                "Signal", "Status", "Quellenlink", "Prüfzeitpunkt",
+            ]
+            st.download_button(
+                "Bedarfssignale als CSV exportieren",
+                data=csv_bytes(radar_rows, radar_csv_columns),
+                file_name="reinigungsradar_nrw_bedarfssignale.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("Der Suchdienst lieferte für diese Suchanfrage keine verwendbaren öffentlichen Ergebnisse.")
+        st.caption(
+            f"Suchanfrage: {radar_result.get('query', '')} · "
+            f"Quelle: {radar_result.get('source', '')} · "
+            f"Geprüft: {radar_result.get('source_timestamp', '')}"
+        )
+
+    st.divider()
+    st.markdown("**Manuelle Suche auf Job-, Projekt- und Social-Plattformen**")
+    st.caption(
+        "Diese Links öffnen die jeweilige Plattform für eine normale manuelle Suche. "
+        "Sie werden nicht automatisch ausgelesen."
+    )
+    portal_links = build_manual_portal_links(radar_city, radar_category)
+    portal_columns = st.columns(3)
+    for index, portal in enumerate(portal_links):
+        with portal_columns[index % 3]:
+            st.link_button(portal["label"], portal["url"], use_container_width=True)
+            st.caption(portal["note"])
+
+    st.info(
+        "LinkedIn, Facebook, MyHammer, Indeed und StepStone sind in diesem Modul "
+        "bewusst vom automatischen Crawling ausgeschlossen. MyHammer untersagt in seinen "
+        "AGB automatisiertes Sammeln und kommerzielle Datenbankbildung; LinkedIn und "
+        "StepStone untersagen nicht autorisiertes Crawling. Für diese Plattformen ist "
+        "eine ausdrückliche API-/Partnerfreigabe erforderlich."
+    )
+    st.warning(
+        "Die Treffer sind keine bestätigte Kaufabsicht. Vor einer geschäftlichen "
+        "Kontaktaufnahme müssen Quelle, Aktualität, Unternehmensbezug und die "
+        "datenschutz- sowie wettbewerbsrechtlichen Voraussetzungen separat geprüft werden. "
+        "Personenprofile und private Gruppendaten werden nicht gesammelt."
+    )
 
 with tender_tab:
     st.subheader("Aktive öffentliche Ausschreibungen in NRW")
