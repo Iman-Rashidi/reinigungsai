@@ -31,7 +31,7 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertIn("E-Mail-Marketing", source)
         self.assertIn("create_doi_contact(", source)
         self.assertIn("create_campaign_draft(", source)
-        self.assertIn("keine Schaltfläche zum Versenden", source)
+        self.assertIn("Keine Versand- oder Planungsfunktion", source)
         self.assertIn("BREVO_API_KEY", source)
         self.assertNotIn("send_campaign(", source)
 
