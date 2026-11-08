@@ -34,6 +34,7 @@ from src.lead_lifecycle import (
     detect_ad_status,
     find_duplicate_pairs,
 )
+from src.supabase_leads import SupabaseLeadStoreError, persist_search_batch
 from src.company_search import (
     CUSTOMER_CATEGORIES,
     PROVIDER_CATEGORIES,
@@ -471,8 +472,10 @@ with lead_radar_tab:
         )
 
     if st.button("Öffentliche Webquellen durchsuchen", type="primary", key="run_lead_radar"):
+        previous_result = st.session_state.get("lead_radar_result") or {}
         st.session_state.pop("lead_radar_result", None)
         st.session_state.pop("lead_radar_error", None)
+        st.session_state.pop("lead_radar_storage_error", None)
         try:
             with st.spinner("Durchsuche öffentliche Suchergebnisse und bewerte Bedarfssignale …"):
                 new_result = cached_public_lead_search(
@@ -481,7 +484,17 @@ with lead_radar_tab:
                     radar_extra,
                     int(radar_limit),
                 )
-            previous_result = st.session_state.get("lead_radar_result") or {}
+            try:
+                st.session_state["lead_radar_storage"] = persist_search_batch(
+                    source="public_web",
+                    query=new_result.get("query", ""),
+                    city=new_result.get("city", ""),
+                    category=new_result.get("category", ""),
+                    records=new_result.get("rows", []),
+                )
+            except SupabaseLeadStoreError as exc:
+                st.session_state["lead_radar_storage_error"] = str(exc)
+            previous_result = previous_result or {}
             changes = []
             same_search = (
                 previous_result.get("city") == new_result.get("city")
@@ -521,6 +534,17 @@ with lead_radar_tab:
     elif radar_result:
         radar_rows = radar_result.get("rows", [])
         st.metric("Öffentliche Bedarfssignale gefunden", len(radar_rows))
+        storage_result = st.session_state.get("lead_radar_storage")
+        storage_error = st.session_state.get("lead_radar_storage_error", "")
+        if storage_result:
+            st.caption(
+                "Supabase-Staging: "
+                f"{storage_result.get('processed', 0)} Datensätze verarbeitet · "
+                f"{storage_result.get('inserted', 0)} neu · "
+                f"{storage_result.get('updated', 0)} aktualisiert."
+            )
+        elif storage_error:
+            st.warning(f"Speicherung in Supabase fehlgeschlagen; die Suchergebnisse bleiben verfügbar: {storage_error}")
         radar_changes = st.session_state.get("lead_radar_changes", [])
         if radar_changes:
             with st.expander(f"Änderungen seit der letzten Suche ({len(radar_changes)})"):
@@ -668,8 +692,10 @@ with tender_tab:
         )
 
     if tender_submitted:
+        previous_notices = st.session_state.get("ted_notices", [])
         st.session_state["ted_notices"] = []
         st.session_state["ted_search_error"] = ""
+        st.session_state.pop("ted_storage_error", None)
         st.session_state["ted_search_ran"] = True
         try:
             with st.spinner("Suche aktive TED-Bekanntmachungen für NRW …"):
@@ -678,7 +704,16 @@ with tender_tab:
                     limit=int(tender_limit),
                     region="NRW",
                 )
-            previous_notices = st.session_state.get("ted_notices", [])
+            try:
+                st.session_state["ted_storage"] = persist_search_batch(
+                    source="ted",
+                    query=ted_result.get("query", ""),
+                    city="NRW",
+                    category=tender_category,
+                    records=ted_result.get("notices", []),
+                )
+            except SupabaseLeadStoreError as exc:
+                st.session_state["ted_storage_error"] = str(exc)
             previous_by_id = {
                 item.get("publication_number") or item.get("url"): item
                 for item in previous_notices
@@ -757,6 +792,17 @@ with tender_tab:
             f"{len(ted_notices)} Treffer geladen. "
             f"TED meldet insgesamt {st.session_state.get('ted_total', len(ted_notices))} passende aktive Bekanntmachungen."
         )
+        ted_storage = st.session_state.get("ted_storage")
+        ted_storage_error = st.session_state.get("ted_storage_error", "")
+        if ted_storage:
+            st.caption(
+                "Supabase-Staging: "
+                f"{ted_storage.get('processed', 0)} Bekanntmachungen verarbeitet · "
+                f"{ted_storage.get('inserted', 0)} neu · "
+                f"{ted_storage.get('updated', 0)} aktualisiert."
+            )
+        elif ted_storage_error:
+            st.warning(f"Speicherung in Supabase fehlgeschlagen; TED-Treffer bleiben verfügbar: {ted_storage_error}")
         for notice in ted_notices:
             publication_number = notice.get("publication_number") or "Ohne Veröffentlichungsnummer"
             title = notice.get("title") or "Ohne Titel"
