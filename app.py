@@ -298,16 +298,13 @@ with discovery_tab:
         ]
         duplicate_rows = [row for row in found_rows if row not in new_rows]
 
-        # Strict qualification: only publishable leads with both a public email
-        # and a phone contact. A gold star requires an explicitly named contact
-        # whose recorded role points to procurement/contracts/facility decisions.
         contact_ready_rows = [
             row for row in new_rows
             if row.get("E-Mail", "").strip() and row.get("Telefon", "").strip()
         ]
         procurement_terms = re.compile(
             r"einkauf|beschaffung|vergabe|vertrags|facility|objektleitung|"
-            r" kaufmännisch|leitung|geschäftsführ|procurement|contract",
+            r"kaufmännisch|leitung|geschäftsführ|procurement|contract",
             re.IGNORECASE,
         )
         for row in contact_ready_rows:
