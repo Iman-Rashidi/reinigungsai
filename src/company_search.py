@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-import os
 import re
+import unicodedata
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -171,7 +171,23 @@ def _normalise_element(element: dict, city: str, mode: str) -> dict[str, str]:
 
 
 
-def _google_places_search(city: str, mode: str, category: str, limit: int, api_key: str) -> dict:
+
+def _city_key(value: str) -> str:
+    """Create a comparison key for municipality names without accent differences."""
+    text = str(value or "").strip().casefold().replace("ß", "ss")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = re.sub(r"^(?:kreisfreie\\s+stadt|landeshauptstadt|stadt)\\s+", "", text)
+    text = re.sub(r"\\s*,?\\s*(?:kreisfreie\\s+stadt|stadt)$", "", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _same_city(candidate: str, requested: str) -> bool:
+    """Return True only when a source explicitly identifies the requested city."""
+    requested_key = _city_key(requested)
+    return bool(requested_key and _city_key(candidate) == requested_key)
+
+def _photon_search(city: str, mode: str, category: str, limit: int, api_key: str) -> dict:
     """Search Google Places Text Search (New); requires a configured Places API key."""
     if mode == "Anbieter":
         search_term = {
@@ -313,6 +329,15 @@ def _photon_search(city: str, mode: str, category: str, limit: int, timeout: int
         name = str(props.get("name") or "").strip()
         if not name:
             continue
+        # Photon is a global index. Require an explicit locality match rather
+        # than trusting query wording, which can otherwise leak other cities.
+        city_values = [
+            str(props.get(key) or "").strip()
+            for key in ("city", "locality", "county", "district")
+            if props.get(key)
+        ]
+        if not any(_same_city(value, city) for value in city_values):
+            continue
         osm_id = props.get("osm_id")
         osm_type = str(props.get("osm_type") or "").lower()
         osm_kind = {"n": "node", "w": "way", "r": "relation"}.get(osm_type, "node")
@@ -334,7 +359,7 @@ def _photon_search(city: str, mode: str, category: str, limit: int, timeout: int
         rows.append({
             "Unternehmen": name,
             "Branche / Typ": " ".join(str(props.get(k) or "") for k in ("osm_key", "osm_value")).strip() or category,
-            "Stadt": str(props.get("city") or props.get("district") or city),
+            "Stadt": city,
             "Adresse": " ".join(part for part in (postcode, street) if part),
             "PLZ": postcode,
             "Telefon": "",
@@ -367,22 +392,17 @@ def search_companies(
     city = " ".join((city or "").split()).strip()
     if not city:
         raise ValueError("Bitte eine Stadt in NRW eingeben.")
-    google_key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
-    if google_key:
-        return _google_places_search(city, mode, category, limit, google_key)
+    # Use public OpenStreetMap infrastructure only. This intentionally ignores
+    # Google Maps keys and custom endpoints so discovery cannot trigger a paid
+    # Places API request or an unknown metered service.
     query = build_company_query(city, mode, category, limit)
-    configured = os.environ.get("OVERPASS_API_URL", "").strip()
-    endpoints = []
-    if configured:
-        endpoints.append(configured)
-    endpoints.extend([
-        # Europe-wide daily extract, independent of the main OSMF instance.
+    endpoints = [
+        # Public community-operated Overpass endpoints; no API key or paid plan.
         "https://ovp.dresel.systems/api/interpreter",
-        # Global VK Maps instance, operated independently.
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         "https://overpass-api.de/api/interpreter",
         OVERPASS_DEFAULT_URL,
-    ])
+    ]
     # Preserve order while removing duplicate endpoints.
     endpoints = list(dict.fromkeys(endpoints))
 
@@ -436,6 +456,10 @@ def search_companies(
     seen: set[str] = set()
     for element in elements:
         if not isinstance(element, dict):
+            continue
+        tags = element.get("tags") or {}
+        tagged_city = _best_tag(tags, "addr:city")
+        if tagged_city and not _same_city(tagged_city, city):
             continue
         row = _normalise_element(element, city, mode)
         name = row["Unternehmen"].strip()
