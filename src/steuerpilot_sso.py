@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import time
 from typing import Any
 
@@ -12,6 +13,17 @@ from typing import Any
 ISSUER = "steuerpilot-pro"
 AUDIENCE = "reinigungsradar"
 MAX_TOKEN_TTL_SECONDS = 180
+SSO_SECRET_ENV = "STEUERPILOT_RADAR_SSO_SECRET"
+LEGACY_SSO_SECRET_ENV = "STEUEERPILOT_RADAR_SSO_SECRET"
+
+
+def get_sso_secret(environ=None) -> str:
+    """Read the shared SSO secret, preferring the correctly-spelled key."""
+    source = os.environ if environ is None else environ
+    current = str(source.get(SSO_SECRET_ENV) or "").strip()
+    if current:
+        return current
+    return str(source.get(LEGACY_SSO_SECRET_ENV) or "").strip()
 
 
 def _b64url_encode(value: bytes) -> str:

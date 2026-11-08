@@ -12,6 +12,14 @@ class StreamlitAppTests(unittest.TestCase):
         ast.parse(source, filename="app.py")
 
 
+    def test_staging_auth_uses_central_steuerpilot_sso_only(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn("get_sso_secret()", source)
+        self.assertIn("verify_sso_token(", source)
+        self.assertNotIn("APP_PASSWORD", source)
+        self.assertNotIn("password_matches(", source)
+        self.assertIn("Der direkte Zugang ist deaktiviert", source)
+
     def test_ted_dashboard_uses_the_nrw_active_notice_search(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("Ausschreibungen (TED)", source)

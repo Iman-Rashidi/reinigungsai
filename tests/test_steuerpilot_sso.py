@@ -1,5 +1,7 @@
 import unittest
 
+from src.steuerpilot_sso import get_sso_secret
+
 from src.steuerpilot_sso import create_sso_token, verify_sso_token
 
 
@@ -7,6 +9,28 @@ SECRET = "test-only-secret-material-with-at-least-32-characters"
 
 
 class SteuerPilotSSOTests(unittest.TestCase):
+    def test_reads_the_canonical_shared_secret_name(self):
+        self.assertEqual(
+            get_sso_secret({"STEUERPILOT_RADAR_SSO_SECRET": "  " + SECRET + "  "}),
+            SECRET,
+        )
+
+    def test_supports_the_existing_misspelled_secret_name(self):
+        self.assertEqual(
+            get_sso_secret({"STEUEERPILOT_RADAR_SSO_SECRET": SECRET}),
+            SECRET,
+        )
+
+    def test_canonical_secret_takes_precedence(self):
+        canonical = SECRET + "-canonical"
+        self.assertEqual(
+            get_sso_secret({
+                "STEUERPILOT_RADAR_SSO_SECRET": canonical,
+                "STEUEERPILOT_RADAR_SSO_SECRET": SECRET,
+            }),
+            canonical,
+        )
+
     def test_valid_token_returns_expected_claims(self):
         token = create_sso_token(SECRET, now=1_800_000_000)
         claims = verify_sso_token(token, SECRET, now=1_800_000_030)

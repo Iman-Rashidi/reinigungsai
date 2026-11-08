@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 
-from src.steuerpilot_sso import verify_sso_token
+from src.steuerpilot_sso import get_sso_secret, verify_sso_token
 
 import streamlit as st
 
@@ -72,7 +72,7 @@ def cached_public_lead_search(city: str, category: str, extra_terms: str, limit:
 
 # Staging SSO from SteuerPilot Pro. The short-lived token is signed server-side;
 # the shared secret is only stored in Render environment variables, never in the URL.
-SSO_SECRET = os.environ.get("STEUEERPILOT_RADAR_SSO_SECRET", "").strip()
+SSO_SECRET = get_sso_secret()
 AUTH_KEY = "reinigungsradar_authenticated"
 
 if not st.session_state.get(AUTH_KEY, False):
