@@ -45,10 +45,13 @@ CUSTOMER_CATEGORIES = {
         'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
     ],
     "Sicherheit und Bewachung": [
-        'nwr["name"]["office"="security"](area.searchArea);',
+        'nwr["name"]["office"~"security|guard"](area.searchArea);',
         'nwr["name"]["craft"="security"](area.searchArea);',
         'nwr["name"]["security"](area.searchArea);',
-        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst|Bewachung",i](area.searchArea);',
+        'nwr["name"~"Sicherheitsdienst|Sicherheitsunternehmen|Sicherheitsservice|Security|Wachdienst|Bewachung|Objektschutz|Werkschutz|Veranstaltungsschutz|Personenschutz|Empfangsdienst|Revierdienst|Wachschutz|Alarmdienst|Schließdienst|Doorman|Guarding",i](area.searchArea);',
+        'nwr["brand"~"Sicherheitsdienst|Sicherheitsunternehmen|Security|Wachdienst|Bewachung|Objektschutz|Werkschutz",i](area.searchArea);',
+        'nwr["operator"~"Sicherheitsdienst|Sicherheitsunternehmen|Security|Wachdienst|Bewachung|Objektschutz|Werkschutz",i](area.searchArea);',
+        'nwr["description"~"Sicherheitsdienst|Bewachung|Objektschutz|Werkschutz|Veranstaltungsschutz|Wachschutz",i](area.searchArea);',
     ],
     "Service und Facility Management": [
         'nwr["name"]["office"="facility_management"](area.searchArea);',
@@ -70,10 +73,13 @@ PROVIDER_CATEGORIES = {
         'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
     ],
     "Sicherheitsdienste": [
-        'nwr["name"]["office"="security"](area.searchArea);',
+        'nwr["name"]["office"~"security|guard"](area.searchArea);',
         'nwr["name"]["craft"="security"](area.searchArea);',
         'nwr["name"]["security"](area.searchArea);',
-        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst|Bewachung",i](area.searchArea);',
+        'nwr["name"~"Sicherheitsdienst|Sicherheitsunternehmen|Sicherheitsservice|Security|Wachdienst|Bewachung|Objektschutz|Werkschutz|Veranstaltungsschutz|Personenschutz|Empfangsdienst|Revierdienst|Wachschutz|Alarmdienst|Schließdienst|Doorman|Guarding",i](area.searchArea);',
+        'nwr["brand"~"Sicherheitsdienst|Sicherheitsunternehmen|Security|Wachdienst|Bewachung|Objektschutz|Werkschutz",i](area.searchArea);',
+        'nwr["operator"~"Sicherheitsdienst|Sicherheitsunternehmen|Security|Wachdienst|Bewachung|Objektschutz|Werkschutz",i](area.searchArea);',
+        'nwr["description"~"Sicherheitsdienst|Bewachung|Objektschutz|Werkschutz|Veranstaltungsschutz|Wachschutz",i](area.searchArea);',
     ],
     "Facility Management": [
         'nwr["name"]["office"="facility_management"](area.searchArea);',
@@ -147,7 +153,7 @@ def _normalise_element(element: dict, city: str, mode: str) -> dict[str, str]:
     if website and not website.startswith(("https://", "http://")):
         website = "https://" + website
     return {
-        "Unternehmen": _best_tag(tags, "name"),
+        "Unternehmen": _best_tag(tags, "name", "brand", "operator"),
         "Branche / Typ": _category_label(tags, mode),
         "Stadt": _best_tag(tags, "addr:city") or city,
         "Adresse": address,
@@ -184,7 +190,7 @@ def _google_places_search(city: str, mode: str, category: str, limit: int, api_k
             "Gesundheit": "Krankenhaus Klinik Arztpraxis",
             "Industrie und Gewerbe": "Industrieunternehmen Gewerbepark Fabrik",
             "Reinigung": "Gebäudereinigung Reinigungsunternehmen Reinigungsservice",
-            "Sicherheit und Bewachung": "Sicherheitsdienst Bewachungsunternehmen Wachdienst",
+            "Sicherheit und Bewachung": "Sicherheitsdienst Sicherheitsunternehmen Security Wachdienst Bewachung Objektschutz Werkschutz Veranstaltungsschutz",
             "Service und Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
             "Bauunternehmen und Baugewerbe": "Bauunternehmen Baugewerbe Bauleistungen Hochbau Tiefbau",
         }.get(category, "Unternehmen")
@@ -261,7 +267,7 @@ def _photon_search(city: str, mode: str, category: str, limit: int, timeout: int
     if mode == "Anbieter":
         term_map = {
             "Reinigungsunternehmen": "Gebäudereinigung Reinigungsservice",
-            "Sicherheitsdienste": "Sicherheitsdienst Bewachung Wachdienst",
+            "Sicherheitsdienste": "Sicherheitsdienst Sicherheitsunternehmen Security Wachdienst Bewachung Objektschutz Werkschutz Veranstaltungsschutz",
             "Facility Management": "Facility Management Hausmeisterservice",
             "Bauunternehmen": "Bauunternehmen",
         }
