@@ -74,7 +74,15 @@ def build_expert_query(
     if region != "NRW":
         raise ValueError("Für diesen MVP ist ausschließlich Nordrhein-Westfalen (NRW) freigeschaltet.")
 
-    phrase = clean.replace('"', "")
+    allowed_keywords = {
+        "Gebäudereinigung": "Gebäudereinigung",
+        "Sicherheitsdienst": "Sicherheitsdienst",
+    }
+    if clean not in allowed_keywords:
+        raise ValueError(
+            "Für TED sind nur die Kategorien Gebäudereinigung und Sicherheitsdienst freigeschaltet."
+        )
+    phrase = allowed_keywords[clean].replace('"', "")
     return (
         f'FT~"{phrase}" AND buyer-country=DEU AND place-of-performance=DEA* '
         "SORT BY publication-date DESC"
