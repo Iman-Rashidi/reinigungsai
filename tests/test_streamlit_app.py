@@ -19,6 +19,13 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertIn('region="NRW"', source)
         self.assertIn("keine automatische Kontaktaufnahme oder Angebotsabgabe", source)
 
+    def test_free_mode_does_not_call_metered_public_web_search(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("TAVILY_API_KEY", source)
+        self.assertNotIn("cached_public_lead_search", source)
+        self.assertNotIn("search_public_leads(", source)
+        self.assertIn("Kostenloser Modus", source)
+
     def test_streamlit_requirement_is_not_html_escaped(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("streamlit>=1.40,<2.0", requirements)
