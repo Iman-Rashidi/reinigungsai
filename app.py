@@ -358,12 +358,16 @@ with tender_tab:
     )
 
     with st.form("ted_tender_search"):
-        tender_keyword = st.text_input(
-            "Suchbegriff",
-            value="Gebäudereinigung",
-            max_chars=100,
-            help="Zum Beispiel Gebäudereinigung, Unterhaltsreinigung oder Sicherheitsdienst.",
+        tender_category = st.selectbox(
+            "Ausschreibungskategorie",
+            ["Reinigung", "Sicherheit"],
+            help="Die TED-Suche ist bewusst auf diese beiden Leistungsbereiche begrenzt.",
         )
+        tender_keyword = {
+            "Reinigung": "Gebäudereinigung",
+            "Sicherheit": "Sicherheitsdienst",
+        }[tender_category]
+        st.caption(f"TED-Suchbegriff: {tender_keyword}")
         tender_limit = st.number_input(
             "Maximale Treffer",
             min_value=5,
