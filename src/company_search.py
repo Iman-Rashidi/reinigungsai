@@ -38,6 +38,28 @@ CUSTOMER_CATEGORIES = {
         'nwr["name"]["landuse"="industrial"](area.searchArea);',
         'nwr["name"]["industrial"](area.searchArea);',
     ],
+    "Reinigung": [
+        'nwr["name"]["craft"="cleaning"](area.searchArea);',
+        'nwr["name"]["office"="cleaning"](area.searchArea);',
+        'nwr["name"]["service"="cleaning"](area.searchArea);',
+        'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
+    ],
+    "Sicherheit und Bewachung": [
+        'nwr["name"]["office"="security"](area.searchArea);',
+        'nwr["name"]["craft"="security"](area.searchArea);',
+        'nwr["name"]["security"](area.searchArea);',
+        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst|Bewachung",i](area.searchArea);',
+    ],
+    "Service und Facility Management": [
+        'nwr["name"]["office"="facility_management"](area.searchArea);',
+        'nwr["name"]["service"="facility_management"](area.searchArea);',
+        'nwr["name"~"Facility.?Management|Gebäudeservice|Hausmeisterservice|Industrieservice",i](area.searchArea);',
+    ],
+    "Bauunternehmen und Baugewerbe": [
+        'nwr["name"]["office"="construction"](area.searchArea);',
+        'nwr["name"]["construction"](area.searchArea);',
+        'nwr["name"~"Bauunternehmen|Bau GmbH|Baugesellschaft|Hochbau|Tiefbau|Bauleistungen",i](area.searchArea);',
+    ],
 }
 
 PROVIDER_CATEGORIES = {
@@ -46,6 +68,22 @@ PROVIDER_CATEGORIES = {
         'nwr["name"]["office"="cleaning"](area.searchArea);',
         'nwr["name"]["service"="cleaning"](area.searchArea);',
         'nwr["name"~"Gebäudereinigung|Reinigungsservice|Reinigungsfirma|Cleaning",i](area.searchArea);',
+    ],
+    "Sicherheitsdienste": [
+        'nwr["name"]["office"="security"](area.searchArea);',
+        'nwr["name"]["craft"="security"](area.searchArea);',
+        'nwr["name"]["security"](area.searchArea);',
+        'nwr["name"~"Sicherheitsdienst|Security|Wachdienst|Bewachung",i](area.searchArea);',
+    ],
+    "Facility Management": [
+        'nwr["name"]["office"="facility_management"](area.searchArea);',
+        'nwr["name"]["service"="facility_management"](area.searchArea);',
+        'nwr["name"~"Facility.?Management|Gebäudeservice|Hausmeisterservice|Industrieservice",i](area.searchArea);',
+    ],
+    "Bauunternehmen": [
+        'nwr["name"]["office"="construction"](area.searchArea);',
+        'nwr["name"]["construction"](area.searchArea);',
+        'nwr["name"~"Bauunternehmen|Bau GmbH|Baugesellschaft|Hochbau|Tiefbau|Bauleistungen",i](area.searchArea);',
     ],
 }
 
@@ -128,7 +166,12 @@ def _normalise_element(element: dict, city: str, mode: str) -> dict[str, str]:
 def _google_places_search(city: str, mode: str, category: str, limit: int, api_key: str) -> dict:
     """Search Google Places Text Search (New); requires a configured Places API key."""
     if mode == "Anbieter":
-        search_term = "Gebäudereinigungsunternehmen Reinigungsservice"
+        search_term = {
+            "Reinigungsunternehmen": "Gebäudereinigungsunternehmen Reinigungsservice",
+            "Sicherheitsdienste": "Sicherheitsdienst Bewachungsunternehmen Wachdienst",
+            "Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
+            "Bauunternehmen": "Bauunternehmen Baugewerbe Bauleistungen",
+        }.get(category, "Gebäudereinigungsunternehmen Reinigungsservice")
     else:
         search_term = {
             "Alle passenden Standorte": "Unternehmen Büro Industrie Gewerbe",
@@ -138,6 +181,10 @@ def _google_places_search(city: str, mode: str, category: str, limit: int, api_k
             "Gastronomie": "Restaurant Café",
             "Gesundheit": "Krankenhaus Klinik Arztpraxis",
             "Industrie und Gewerbe": "Industrieunternehmen Gewerbepark Fabrik",
+            "Reinigung": "Gebäudereinigung Reinigungsunternehmen Reinigungsservice",
+            "Sicherheit und Bewachung": "Sicherheitsdienst Bewachungsunternehmen Wachdienst",
+            "Service und Facility Management": "Facility Management Gebäudeservice Hausmeisterservice",
+            "Bauunternehmen und Baugewerbe": "Bauunternehmen Baugewerbe Bauleistungen Hochbau Tiefbau",
         }.get(category, "Unternehmen")
     body = json.dumps({
         "textQuery": f"{search_term} in {city}, Nordrhein-Westfalen, Deutschland",
