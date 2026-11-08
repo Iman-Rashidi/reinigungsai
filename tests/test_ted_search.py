@@ -15,7 +15,7 @@ class TEDSearchTests(unittest.TestCase):
         )
 
     def test_search_is_limited_to_germany_and_nrw(self):
-        query = build_expert_query("Glasreinigung")
+        query = build_expert_query("Gebäudereinigung")
         self.assertIn("buyer-country=DEU", query)
         self.assertIn("place-of-performance=DEA*", query)
 
