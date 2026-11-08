@@ -13,6 +13,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from src.lead_lifecycle import detect_ad_status
+
 
 class SupabaseLeadStoreError(RuntimeError):
     """Raised when the configured staging lead store cannot accept a batch."""
@@ -94,8 +96,11 @@ def normalise_lead_record(
     if is_ted:
         source_id = "ted"
         source_name = "TED – Tenders Electronic Daily"
-        status = "active"
-        status_reason = "returned_by_TED_active_scope"
+        lifecycle = detect_ad_status(
+            {"deadline": record.get("deadline"), "status": "active"}
+        )
+        status = lifecycle["status"]
+        status_reason = lifecycle["reason"]
         metadata = {
             key: str(record.get(key) or "")[:500]
             for key in (
