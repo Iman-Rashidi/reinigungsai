@@ -324,13 +324,19 @@ with discovery_tab:
             r"kaufmännisch|leitung|geschäftsführ|procurement|contract",
             re.IGNORECASE,
         )
-        for row in contact_ready_rows:
+        for row in new_rows:
             role = row.get("Funktion Ansprechpartner", "")
             person = row.get("Ansprechpartner", "")
+            has_full_contact = bool(row.get("E-Mail", "").strip() and row.get("Telefon", "").strip())
+            row["Kontaktstatus"] = (
+                "E-Mail + Telefon vorhanden" if has_full_contact
+                else "Kontaktdaten unvollständig – ergänzen"
+            )
             row["Priorität"] = (
                 "⭐ GOLD – Ansprechpartner für Vergabe/Verträge erkennbar"
-                if person and role and procurement_terms.search(role)
-                else "Standard – Kontaktdaten vollständig"
+                if has_full_contact and person and role and procurement_terms.search(role)
+                else "Standard – Kontaktdaten vollständig" if has_full_contact
+                else "Noch zu prüfen"
             )
         gold_rows = [row for row in contact_ready_rows if row["Priorität"].startswith("⭐ GOLD")]
         st.caption(
@@ -345,29 +351,49 @@ with discovery_tab:
         metric_cols[2].metric("⭐ Gold-Priorität", len(gold_rows))
         metric_cols[3].metric("Bereits gespeichert", len(duplicate_rows))
 
-        if contact_ready_rows:
-            st.success(f"{len(contact_ready_rows)} neue Firmen erfüllen die Mindestanforderung an Kontaktdaten.")
+        if new_rows:
+            if contact_ready_rows:
+                st.success(
+                    f"{len(new_rows)} neue Firmen gefunden. Davon haben {len(contact_ready_rows)} "
+                    "bereits eine öffentliche E-Mail-Adresse und Telefonnummer."
+                )
+            else:
+                st.warning(
+                    f"{len(new_rows)} Firmennamen gefunden. Noch keine davon hat gleichzeitig "
+                    "eine öffentliche E-Mail-Adresse und Telefonnummer. Die Namen bleiben sichtbar, "
+                    "damit du die Unternehmen prüfen und Kontaktdaten ergänzen kannst."
+                )
             discovery_columns = [
-                "Priorität", "Unternehmen", "Branche / Typ", "Stadt", "Adresse", "PLZ",
+                "Priorität", "Kontaktstatus", "Unternehmen", "Branche / Typ", "Stadt", "Adresse", "PLZ",
                 "Ansprechpartner", "Funktion Ansprechpartner", "Telefon", "E-Mail",
                 "Website", "Quelle", "Quellenlink", "Prüfdatum", "Datenstatus",
             ]
             ordered_rows = sorted(
-                contact_ready_rows,
-                key=lambda row: (not row["Priorität"].startswith("⭐ GOLD"), row.get("Unternehmen", "").casefold()),
+                new_rows,
+                key=lambda row: (
+                    not row["Priorität"].startswith("⭐ GOLD"),
+                    not bool(row.get("E-Mail", "").strip() and row.get("Telefon", "").strip()),
+                    row.get("Unternehmen", "").casefold(),
+                ),
             )
             st.dataframe(ordered_rows, use_container_width=True, hide_index=True)
             st.download_button(
-                "Neue qualifizierte Treffer als CSV exportieren",
+                "Alle neuen Firmennamen als CSV exportieren",
                 data=csv_bytes(ordered_rows, discovery_columns),
-                file_name=f"reinigungsradar_qualifizierte_{discovery_result.get('mode', 'firmen').lower()}_{discovery_result.get('city', 'nrw').lower().replace(' ', '_')}.csv",
+                file_name=f"reinigungsradar_firmen_{discovery_result.get('mode', 'firmen').lower()}_{discovery_result.get('city', 'nrw').lower().replace(' ', '_')}.csv",
                 mime="text/csv",
             )
-        elif new_rows:
-            st.warning(
-                "Es gibt neue Firmeneinträge, aber keiner hat gleichzeitig eine öffentliche E-Mail-Adresse "
-                "und Telefonnummer. Sie werden deshalb nicht als qualifizierte Leads angezeigt."
-            )
+            if contact_ready_rows:
+                qualified_rows = sorted(
+                    contact_ready_rows,
+                    key=lambda row: (not row["Priorität"].startswith("⭐ GOLD"), row.get("Unternehmen", "").casefold()),
+                )
+                st.download_button(
+                    "Nur Firmen mit E-Mail + Telefon als CSV exportieren",
+                    data=csv_bytes(qualified_rows, discovery_columns),
+                    file_name=f"reinigungsradar_qualifizierte_{discovery_result.get('mode', 'firmen').lower()}_{discovery_result.get('city', 'nrw').lower().replace(' ', '_')}.csv",
+                    mime="text/csv",
+                )
         elif found_rows:
             st.warning("Es wurden Treffer gefunden, aber alle gleichen bereits vorhandenen Namen oder Websites im Notion-Verzeichnis.")
         else:
