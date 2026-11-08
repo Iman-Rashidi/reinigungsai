@@ -233,7 +233,7 @@ def normalise_results(raw_results: list[dict], city: str, category: str) -> list
             "Domain": host,
             "Suchauszug": snippet,
             "Veröffentlicht": str(item.get("published_date") or "Vom Suchanbieter nicht geliefert"),
-            "Relevanz": str(score),
+            "Relevanz": score,
             "Signal": note,
             "Status": "Öffentliches Suchergebnis – Originalquelle nicht unabhängig geprüft",
             "Quellenlink": url,
