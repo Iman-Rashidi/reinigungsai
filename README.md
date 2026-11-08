@@ -32,3 +32,44 @@ The city search combines two independent open-data sources:
 - Open data does not guarantee a complete or current directory. Phone, email and website fields may be missing; check the source before using a record. Overture Places is licensed under CDLA Permissive 2.0 and Apache 2.0. OpenStreetMap data is licensed under ODbL 1.0 and requires attribution.
 
 The live search limit is configurable up to 1,000 rows per query in the dashboard. Streamlit caches results for 30 minutes to avoid repeating the same external reads.
+
+
+## Email marketing (Listmonk)
+
+The optional email-marketing tab connects to a separately hosted [Listmonk](https://listmonk.app/) instance. Listmonk is free and open source under AGPLv3; the software itself does not include a free SMTP sending service. You must configure an SMTP provider in Listmonk before any real email can be delivered. Hosting, backups, domains and SMTP delivery may have separate costs.
+
+### Start a self-hosted Listmonk instance
+
+A pinned stable Docker Compose example is in `deploy/listmonk/`:
+
+1. Copy `deploy/listmonk/.env.example` to `deploy/listmonk/.env`.
+2. Set strong, unique values for `LISTMONK_DB_PASSWORD`, `LISTMONK_ADMIN_USER` and `LISTMONK_ADMIN_PASSWORD`. Never commit the real `.env` file.
+3. Run `docker compose --env-file .env up -d` from `deploy/listmonk/`.
+4. Put the Listmonk web interface behind HTTPS before exposing it outside the host. The Compose port is bound to localhost by default.
+5. In Listmonk, configure an SMTP server, create a restricted API user/token, and create an active list with **Double opt-in** enabled.
+6. Grant the API user only the list, subscriber and campaign read/write permissions required for the intended lists. Avoid a super-admin API token.
+
+The Compose file pins Listmonk `v6.2.0` (stable), with PostgreSQL 17 and persistent database/uploads volumes. Check the upstream release notes before upgrading.
+
+### Connect the ReinigungsRadar app
+
+Add these protected Render environment variables (or local environment variables for development):
+
+- `LISTMONK_URL`: the HTTPS base URL reachable by the ReinigungsRadar service, without a trailing slash.
+- `LISTMONK_API_USER`: the restricted Listmonk API username.
+- `LISTMONK_API_TOKEN`: the API token for that user.
+
+Never add real credentials to `.env.example`, source code, issues or commits. After configuration, use **E-Mail-Marketing → Listmonk-Verbindung testen und Listen laden**.
+
+The integration intentionally:
+- does not bulk-import companies or public email addresses from the Radar;
+- only creates a subscriber when the operator records prior explicit consent and a reference to its evidence;
+- only adds subscribers to an active Double-opt-in list and never pre-confirms a subscription;
+- creates Markdown campaign drafts only; the dashboard has no send/schedule action;
+- leaves final audience review and sending to a human operator inside Listmonk.
+
+In Germany, email advertising generally requires prior express consent. The existing-customer exception in § 7(3) UWG is narrow and applies only when every statutory condition is met. This technical gate is not legal advice and does not replace documenting the lawful basis, privacy notice, withdrawal process, sender identity and unsubscribe handling.
+
+### Integration tests
+
+Run `python -m unittest discover -s tests -v`. Listmonk API tests use mocked HTTP responses and do not send real emails. A live connection test requires a separately deployed HTTPS Listmonk instance and valid API credentials.

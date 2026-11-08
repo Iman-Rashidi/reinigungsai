@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import date
 
 from src.access_control import password_matches
 
@@ -30,6 +31,7 @@ from src.lead_lifecycle import (
     find_duplicate_pairs,
 )
 from src.supabase_leads import SupabaseLeadStoreError, persist_search_batch
+from src.listmonk_client import ListmonkAPIError, ListmonkClient, ListmonkConfigurationError
 from src.company_search import (
     CUSTOMER_CATEGORIES,
     PROVIDER_CATEGORIES,
@@ -39,7 +41,7 @@ from src.company_search import (
 
 st.set_page_config(page_title="ReinigungsRadar NRW", page_icon="📒", layout="wide")
 
-for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION"):
+for secret_name in ("APP_PASSWORD", "NOTION_TOKEN", "NOTION_DATA_SOURCE_ID", "PROVIDER_DATA_SOURCE_ID", "NOTION_VERSION", "LISTMONK_URL", "LISTMONK_API_USER", "LISTMONK_API_TOKEN"):
     if not os.environ.get(secret_name):
         try:
             value = st.secrets.get(secret_name)
@@ -171,12 +173,13 @@ provider_rows = st.session_state.get("provider_rows", [])
 customer_rows = complete_rows(customer_rows, CUSTOMER_COLUMNS)
 provider_rows = complete_rows(provider_rows, PROVIDER_COLUMNS)
 
-customer_tab, provider_tab, discovery_tab, lead_radar_tab, tender_tab, setup_tab = st.tabs([
+customer_tab, provider_tab, discovery_tab, lead_radar_tab, tender_tab, email_marketing_tab, setup_tab = st.tabs([
     "🏢 Kundenverzeichnis",
     "🛡️ Anbieter-Verzeichnis",
     "🔎 Neue Firmen finden",
     "🌐 Job- & Projekt-Radar",
     "📄 Ausschreibungen (TED)",
+    "📨 E-Mail-Marketing",
     "⚙️ Datenquellen",
 ])
 
@@ -810,6 +813,176 @@ with tender_tab:
     else:
         st.info("Suchbegriff eingeben und Suche starten. Es werden nur aktive Bekanntmachungen mit Leistungsort NRW abgefragt.")
 
+
+with email_marketing_tab:
+    st.subheader("Listmonk – E-Mail-Marketing")
+    st.caption(
+        "Kostenlose, selbst gehostete Open-Source-Verwaltung für Listen und Kampagnen. "
+        "Der Versand läuft über einen separat konfigurierten SMTP-Dienst."
+    )
+    st.warning(
+        "Öffentliche Firmen-E-Mail-Adressen sind keine Werbeeinwilligung. "
+        "Kontakte aus der Firmensuche werden nicht automatisch übernommen. "
+        "Für neue Abonnenten wird ausschließlich eine Listmonk-Liste mit Double-Opt-in unterstützt."
+    )
+
+    listmonk_url = os.environ.get("LISTMONK_URL", "").strip()
+    listmonk_user = os.environ.get("LISTMONK_API_USER", "").strip()
+    listmonk_token = os.environ.get("LISTMONK_API_TOKEN", "").strip()
+
+    if not (listmonk_url and listmonk_user and listmonk_token):
+        st.info(
+            "Listmonk ist noch nicht verbunden. Lege in Render die drei Secrets "
+            "`LISTMONK_URL`, `LISTMONK_API_USER` und `LISTMONK_API_TOKEN` an. "
+            "Die Einrichtung steht in der README. Zugangsdaten niemals hier oder in GitHub eintragen."
+        )
+    else:
+        try:
+            listmonk_client = ListmonkClient(
+                base_url=listmonk_url,
+                username=listmonk_user,
+                api_token=listmonk_token,
+            )
+        except ListmonkConfigurationError as exc:
+            st.error(f"Listmonk-Konfiguration ungültig: {exc}")
+            listmonk_client = None
+
+        if listmonk_client:
+            if st.button("Listmonk-Verbindung testen und Listen laden", type="primary", key="listmonk_test_connection"):
+                try:
+                    st.session_state["listmonk_lists"] = listmonk_client.get_lists()
+                    st.session_state["listmonk_connection_error"] = ""
+                    st.session_state["listmonk_connection_ok"] = True
+                except ListmonkAPIError as exc:
+                    st.session_state["listmonk_connection_error"] = str(exc)
+                    st.session_state["listmonk_connection_ok"] = False
+
+            if st.session_state.get("listmonk_connection_ok"):
+                st.success(
+                    f"Listmonk-Verbindung erfolgreich. "
+                    f"{len(st.session_state.get('listmonk_lists', []))} Listen geladen."
+                )
+            elif st.session_state.get("listmonk_connection_error"):
+                st.error(f"Verbindung fehlgeschlagen: {st.session_state['listmonk_connection_error']}")
+
+            available_lists = st.session_state.get("listmonk_lists", [])
+            if available_lists:
+                display_lists = [
+                    {
+                        "ID": item.get("id"),
+                        "Name": item.get("name", ""),
+                        "Typ": item.get("type", ""),
+                        "Opt-in": item.get("optin", "nicht angegeben"),
+                        "Status": item.get("status", "nicht angegeben"),
+                    }
+                    for item in available_lists
+                ]
+                st.dataframe(display_lists, use_container_width=True, hide_index=True)
+
+                double_optin_lists = [
+                    item for item in available_lists
+                    if str(item.get("optin", "")).casefold() == "double"
+                    and str(item.get("status", "active")).casefold() != "archived"
+                    and str(item.get("id", "")).isdigit()
+                ]
+                list_names = {
+                    int(item["id"]): str(item.get("name") or f"Liste {item['id']}")
+                    for item in double_optin_lists
+                }
+                if not double_optin_lists:
+                    st.warning(
+                        "Keine aktive Double-Opt-in-Liste gefunden. Bitte zuerst in Listmonk "
+                        "eine Liste mit Double-Opt-in einrichten. Es werden keine Kontakte hinzugefügt."
+                    )
+                else:
+                    st.markdown("**Kontakt mit dokumentierter Einwilligung hinzufügen**")
+                    with st.form("listmonk_add_consented_subscriber"):
+                        subscriber_email = st.text_input("E-Mail-Adresse")
+                        subscriber_name = st.text_input("Name / Unternehmen")
+                        subscriber_list_id = st.selectbox(
+                            "Double-Opt-in-Liste",
+                            options=list(list_names),
+                            format_func=lambda value: list_names[value],
+                        )
+                        consent_date = st.text_input(
+                            "Datum der Einwilligung (YYYY-MM-DD)",
+                            value=date.today().isoformat(),
+                        )
+                        consent_method = st.selectbox(
+                            "Art der Einwilligung",
+                            ["E-Mail-Bestätigung", "Webformular mit Double-Opt-in", "Schriftliche Einwilligung"],
+                        )
+                        consent_evidence = st.text_input(
+                            "Nachweisreferenz",
+                            placeholder="z. B. Formular-ID oder Ablageverweis",
+                            help="Keine Passwörter oder unnötigen personenbezogenen Details eintragen.",
+                        )
+                        consent_confirmed = st.checkbox(
+                            "Ich habe die vorherige ausdrückliche Werbeeinwilligung dokumentiert und kann sie nachweisen."
+                        )
+                        subscriber_submitted = st.form_submit_button("Kontakt mit Double-Opt-in anlegen")
+
+                    if subscriber_submitted:
+                        try:
+                            result = listmonk_client.add_consented_subscriber(
+                                email=subscriber_email,
+                                name=subscriber_name,
+                                list_id=int(subscriber_list_id),
+                                consent_date=consent_date,
+                                consent_method=consent_method,
+                                evidence_reference=consent_evidence,
+                                consent_confirmed=consent_confirmed,
+                            )
+                            subscriber_data = result.get("data", result)
+                            st.success(
+                                "Kontakt angelegt. Die Listenmitgliedschaft bleibt bis zur "
+                                "Bestätigung des Double-Opt-in unbestätigt."
+                            )
+                            st.caption(f"Listmonk-Kontakt-ID: {subscriber_data.get('id', 'nicht zurückgegeben')}")
+                        except (ListmonkAPIError, ListmonkConfigurationError, ValueError) as exc:
+                            st.error(f"Kontakt konnte nicht angelegt werden: {exc}")
+
+                    st.divider()
+                    st.markdown("**Kampagne als Entwurf erstellen**")
+                    with st.form("listmonk_create_campaign_draft"):
+                        campaign_name = st.text_input("Interner Kampagnenname")
+                        campaign_subject = st.text_input("E-Mail-Betreff")
+                        campaign_list_ids = st.multiselect(
+                            "Zielgruppen (nur Double-Opt-in-Listen)",
+                            options=list(list_names),
+                            format_func=lambda value: list_names[value],
+                        )
+                        campaign_body = st.text_area(
+                            "Inhalt (Markdown)",
+                            height=220,
+                            placeholder="Guten Tag …",
+                        )
+                        campaign_submitted = st.form_submit_button("Kampagnenentwurf erstellen")
+
+                    if campaign_submitted:
+                        try:
+                            campaign = listmonk_client.create_campaign_draft(
+                                name=campaign_name,
+                                subject=campaign_subject,
+                                list_ids=campaign_list_ids,
+                                body=campaign_body,
+                            )
+                            campaign_data = campaign.get("data", campaign)
+                            st.success(
+                                f"Kampagne als Entwurf erstellt "
+                                f"(ID: {campaign_data.get('id', 'nicht zurückgegeben')}). "
+                                "Es wurde keine E-Mail versendet."
+                            )
+                        except (ListmonkAPIError, ListmonkConfigurationError, ValueError) as exc:
+                            st.error(f"Kampagnenentwurf konnte nicht erstellt werden: {exc}")
+            else:
+                st.caption("Nach erfolgreichem Verbindungstest werden die verfügbaren Listen hier angezeigt.")
+
+    st.caption(
+        "Der Radar bietet absichtlich keine Schaltfläche zum Versenden. "
+        "Der finale Versand und die Prüfung der Zielgruppe bleiben ein manueller Schritt in Listmonk."
+    )
+
 with setup_tab:
     st.subheader("Getrennte Notion-Datenbanken")
     st.markdown(
@@ -821,6 +994,10 @@ with setup_tab:
         "- Vorhandene Felder: Dienstleistung, Einsatzgebiet, Zertifikate / Erlaubnisse und Datenstatus.\n\n"
         "**Wichtiger Datenhinweis**\n"
         "- Der vorhandene Kundenbestand ist ein Mönchengladbach-Pilot und noch keine vollständige NRW-Abdeckung.\n\n"
+        "**E-Mail-Marketing**\n"
+        "- Listmonk ist optional; Zugang über LISTMONK_URL, LISTMONK_API_USER und LISTMONK_API_TOKEN.\n"
+        "- Neue Kontakte nur mit dokumentierter vorheriger Einwilligung; Double-Opt-in muss aktiv sein.\n"
+        "- Kampagnen werden aus dem Radar nur als Entwurf angelegt, niemals automatisch versendet.\n\n"
         "**Ausschreibungen**\n"
         "- Aktive TED-Bekanntmachungen mit Leistungsort NRW; weitere Vergabeportale sind noch nicht integriert."
     )
@@ -834,5 +1011,5 @@ with setup_tab:
 
 st.caption(
     "ReinigungsRadar NRW · Kunden, Anbieter und TED-Ausschreibungen getrennt · "
-    "read-only · keine automatische Kontaktaufnahme oder Angebotsabgabe."
+    "read-only für Verzeichnisse · E-Mail-Kampagnen nur als Entwurf · keine automatische Kontaktaufnahme oder Angebotsabgabe."
 )
