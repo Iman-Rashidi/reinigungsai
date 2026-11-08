@@ -226,12 +226,13 @@ with provider_tab:
 with discovery_tab:
     st.subheader("Neue Firmen in NRW finden")
     st.caption(
-        "Kostenlose Live-Firmensuche über OpenStreetMap / Overpass und bei Bedarf Photon. "
-        "Es wird kein Google-Places- oder anderer kostenpflichtiger Suchdienst aufgerufen."
+        "Kostenlose Live-Firmensuche über Overture Maps und ergänzend OpenStreetMap / Overpass. "
+        "Die Ortsdaten werden aus offenen Datensätzen geladen; es wird kein Google-Places- oder "
+        "anderer kostenpflichtiger Places-Dienst aufgerufen."
     )
     st.info(
-        "Gib die gewünschte Stadt unten ein. Die Suche ist auf diese Stadt begrenzt; "
-        "Treffer aus anderen Städten werden verworfen. Notion bleibt unverändert."
+        "Gib die gewünschte Stadt unten ein. Overture lädt nur die räumlich passenden Dateien "
+        "für das Suchgebiet; OpenStreetMap ergänzt die Treffer. Notion bleibt unverändert."
     )
 
     discovery_mode = st.radio(
@@ -254,7 +255,7 @@ with discovery_tab:
             help="Hier wird tatsächlich eine neue Suche in der eingegebenen Stadt gestartet.",
         )
         discovery_category = st.selectbox("Branche / Dienstleistung", category_options)
-        discovery_limit = st.slider("Maximale Treffer", min_value=10, max_value=100, value=60, step=10)
+        discovery_limit = st.slider("Maximale Treffer", min_value=50, max_value=1000, value=250, step=50)
         discovery_submitted = st.form_submit_button(
             "Neue Firmen suchen",
             type="primary",
@@ -267,7 +268,7 @@ with discovery_tab:
             st.session_state["discovery_error"] = "Bitte zuerst eine Stadt eingeben, zum Beispiel Köln."
         else:
             try:
-                with st.spinner(f"Kostenlose OpenStreetMap-Suche in {discovery_city} …"):
+                with st.spinner(f"Kostenlose Overture- und OpenStreetMap-Suche in {discovery_city} …"):
                     st.session_state["discovery_result"] = cached_company_search(
                         discovery_city,
                         discovery_mode,
@@ -395,15 +396,31 @@ with discovery_tab:
                 st.dataframe(duplicate_rows, use_container_width=True, hide_index=True)
 
         source_name = discovery_result.get("source", "Unbekannte Quelle")
-        st.caption(f"Quelle: {source_name} · Stadt angefragt: {discovery_result.get('city', '')}")
+        st.caption(f"Quellen: {source_name} · Stadt angefragt: {discovery_result.get('city', '')}")
+        source_breakdown = discovery_result.get("source_breakdown", {})
+        if source_breakdown:
+            parts = [
+                f"{source}: {count}"
+                for source, count in source_breakdown.items()
+                if count
+            ]
+            st.caption("Treffer vor Zusammenführung: " + " · ".join(parts))
+        for source_warning in discovery_result.get("source_warnings", []):
+            st.warning(source_warning)
         if discovery_result.get("source_timestamp"):
             st.caption(f"Datenstand: {discovery_result['source_timestamp']}")
         if "Google" in source_name:
             st.markdown("[Google Maps Platform – Places API](https://developers.google.com/maps/documentation/places/web-service/text-search)")
         else:
+            if "Overture Maps" in source_name:
+                st.caption(
+                    "Overture Places: offene Datensätze unter CDLA Permissive 2.0 und Apache 2.0. "
+                    "Einträge können unvollständig oder veraltet sein."
+                )
+                st.markdown("[Overture Maps – Places-Daten und Quellen](https://docs.overturemaps.org/guides/places/)")
             st.caption(
-                "Daten © OpenStreetMap contributors, Lizenz ODbL 1.0. Karteneinträge können "
-                "unvollständig oder veraltet sein; Unternehmensangaben vor Nutzung prüfen."
+                "OpenStreetMap-Daten © OpenStreetMap contributors, Lizenz ODbL 1.0. "
+                "Unternehmensangaben vor Nutzung prüfen."
             )
             st.markdown("[OpenStreetMap – Copyright und Lizenz](https://www.openstreetmap.org/copyright)")
         st.warning(
