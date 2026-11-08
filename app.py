@@ -696,6 +696,49 @@ with tender_tab:
 
     ted_error = st.session_state.get("ted_search_error", "")
     ted_notices = st.session_state.get("ted_notices", [])
+    current_radar = st.session_state.get("lead_radar_result") or {}
+    current_radar_rows = current_radar.get("rows", [])
+    if ted_notices and current_radar_rows:
+        cross_records = [
+            {
+                "title": row.get("Titel", ""),
+                "description": row.get("Suchauszug", ""),
+                "location": current_radar.get("city", ""),
+                "category": current_radar.get("category", ""),
+                "source": row.get("Domain", "Public Web"),
+                "url": row.get("Quellenlink", ""),
+            }
+            for row in current_radar_rows
+        ]
+        cross_records.extend([
+            {
+                "title": item.get("title", ""),
+                "description": item.get("description", ""),
+                "location": item.get("location", ""),
+                "source": "TED",
+                "external_id": item.get("publication_number", ""),
+                "url": item.get("url", ""),
+            }
+            for item in ted_notices
+        ])
+        cross_matches = [
+            pair for pair in find_duplicate_pairs(cross_records)
+            if pair.get("cross_portal")
+        ]
+        if cross_matches:
+            with st.expander(f"Portalübergreifende Doppelmeldungen ({len(cross_matches)})"):
+                for pair in cross_matches:
+                    left = cross_records[pair["left_index"]]
+                    right = cross_records[pair["right_index"]]
+                    st.write(
+                        f"**{left.get('title', '')}** ({left.get('source', '')}) "
+                        f"↔ **{right.get('title', '')}** ({right.get('source', '')})"
+                    )
+                    st.caption(
+                        f"Ähnlichkeit: {pair['similarity']:.0%} · "
+                        f"Erkennung: {', '.join(pair['reasons'])} · "
+                        "Bitte Originalquellen manuell vergleichen."
+                    )
     if ted_error:
         st.error(f"TED-Suche fehlgeschlagen: {ted_error}")
     elif ted_notices:
