@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from src.overture_search import OvertureSearchError, search_overture_companies
 
 OVERPASS_DEFAULT_URL = "https://overpass.private.coffee/api/interpreter"
 USER_AGENT = "ReinigungsRadarNRW/1.0 (on-demand business directory discovery)"
@@ -111,7 +112,7 @@ def build_company_query(city: str, mode: str, category: str, limit: int = 80) ->
     if category not in category_map:
         raise ValueError("Die ausgewählte Kategorie ist ungültig.")
     safe_city = city.replace("\\", "\\\\").replace('"', '\\"')
-    safe_limit = max(5, min(int(limit), 100))
+    safe_limit = max(5, min(int(limit), 1000))
     selectors = "\n".join(category_map[category])
     return (
         '[out:json][timeout:25];\n'
@@ -290,29 +291,104 @@ def _photon_search(city: str, mode: str, category: str, limit: int, timeout: int
     }
 
 
+def _company_row_keys(row: dict[str, str]) -> set[tuple[str, ...]]:
+    """Build conservative same-location keys so different branches stay distinct."""
+    name = re.sub(r"[^a-z0-9]+", "", str(row.get("Unternehmen") or "").casefold())
+    if not name:
+        return set()
+    city = _city_key(row.get("Stadt") or "")
+    address = re.sub(r"[^a-z0-9]+", "", str(row.get("Adresse") or "").casefold())
+    postcode = re.sub(r"\D+", "", str(row.get("PLZ") or ""))
+    phone = re.sub(r"\D+", "", str(row.get("Telefon") or ""))
+    keys: set[tuple[str, ...]] = set()
+    if address:
+        keys.add(("name-address", name, address))
+    elif postcode:
+        keys.add(("name-postcode", name, postcode))
+    else:
+        keys.add(("name-city", name, city))
+    if phone:
+        keys.add(("name-phone", name, phone))
+    return keys
+
+
+def _merge_company_rows(*row_groups: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Merge records across providers while retaining distinct branch addresses."""
+    merged: list[dict[str, str]] = []
+    key_to_index: dict[tuple[str, ...], int] = {}
+    for group in row_groups:
+        for source_row in group:
+            row = dict(source_row)
+            keys = _company_row_keys(row)
+            matched_index = next(
+                (key_to_index[key] for key in keys if key in key_to_index),
+                None,
+            )
+            if matched_index is None:
+                matched_index = len(merged)
+                merged.append(row)
+            else:
+                current = merged[matched_index]
+                for field, value in row.items():
+                    if field in ("Quelle", "Quellenlink", "Datenstatus"):
+                        continue
+                    if value and not current.get(field):
+                        current[field] = value
+                source_names = list(dict.fromkeys(
+                    part.strip()
+                    for part in (str(current.get("Quelle", "")) + " + " + str(row.get("Quelle", ""))).split("+")
+                    if part.strip()
+                ))
+                current["Quelle"] = " + ".join(source_names)
+                old_status = str(current.get("Datenstatus") or "").strip()
+                new_status = str(row.get("Datenstatus") or "").strip()
+                if new_status and new_status not in old_status:
+                    current["Datenstatus"] = " · ".join(part for part in (old_status, new_status) if part)
+                if not current.get("Quellenlink") and row.get("Quellenlink"):
+                    current["Quellenlink"] = row["Quellenlink"]
+            for key in keys:
+                key_to_index[key] = matched_index
+    return merged
+
+
 def search_companies(
     city: str,
     mode: str,
     category: str,
-    limit: int = 80,
+    limit: int = 250,
     timeout: int = 22,
 ) -> dict:
-    """Search one city on demand, fail over across public Overpass instances."""
+    """Search a town across Overture Places and OpenStreetMap, then deduplicate."""
     city = " ".join((city or "").split()).strip()
     if not city:
-        raise ValueError("Bitte eine Stadt in NRW eingeben.")
-    # Use public OpenStreetMap infrastructure only. This intentionally ignores
-    # Google Maps keys and custom endpoints so discovery cannot trigger a paid
-    # Places API request or an unknown metered service.
-    query = build_company_query(city, mode, category, limit)
+        raise ValueError("Bitte eine Stadt oder Gemeinde in NRW eingeben.")
+    requested_limit = max(10, min(int(limit), 5000))
+
+    # Validate the mode and category before calling any external source.
+    query = build_company_query(city, mode, category, requested_limit)
+
+    warnings: list[str] = []
+    overture_rows: list[dict[str, str]] = []
+    try:
+        overture_rows = search_overture_companies(
+            city=city,
+            mode=mode,
+            category=category,
+            limit=requested_limit,
+            timeout=timeout,
+        )
+    except (OvertureSearchError, ValueError) as exc:
+        warnings.append(f"Overture Maps: {exc}")
+
+    # OSM remains a complementary source. It no longer has a 100-record ceiling.
+    osm_limit = min(requested_limit, 1000)
+    osm_query = build_company_query(city, mode, category, osm_limit)
     endpoints = [
-        # Public community-operated Overpass endpoints; no API key or paid plan.
         "https://ovp.dresel.systems/api/interpreter",
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         "https://overpass-api.de/api/interpreter",
         OVERPASS_DEFAULT_URL,
     ]
-    # Preserve order while removing duplicate endpoints.
     endpoints = list(dict.fromkeys(endpoints))
 
     failures: list[str] = []
@@ -323,7 +399,7 @@ def search_companies(
             continue
         request = Request(
             endpoint,
-            data=urlencode({"data": query}).encode("utf-8"),
+            data=urlencode({"data": osm_query}).encode("utf-8"),
             headers={
                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
                 "Accept": "application/json",
@@ -332,10 +408,10 @@ def search_companies(
             method="POST",
         )
         try:
-            with urlopen(request, timeout=timeout) as response:
+            with urlopen(request, timeout=min(max(timeout, 5), 15)) as response:
                 candidate = json.loads(response.read().decode("utf-8"))
             if not isinstance(candidate, dict) or not isinstance(candidate.get("elements"), list):
-                failures.append("invalid JSON response")
+                failures.append(f"{endpoint}: invalid JSON response")
                 continue
             payload = candidate
             break
@@ -347,48 +423,78 @@ def search_companies(
         except (json.JSONDecodeError, UnicodeDecodeError):
             failures.append(f"{endpoint}: invalid JSON")
 
-    if payload is None:
-        # Photon is an independent OSM search index and can return named POIs
-        # when Overpass POST endpoints are unreachable from the hosting network.
+    osm_rows: list[dict[str, str]] = []
+    photon_rows: list[dict[str, str]] = []
+    if payload is not None:
+        for element in payload.get("elements", []):
+            if not isinstance(element, dict):
+                continue
+            tags = element.get("tags") or {}
+            tagged_city = _best_tag(tags, "addr:city")
+            if tagged_city and not _same_city(tagged_city, city):
+                continue
+            row = _normalise_element(element, city, mode)
+            if not row["Unternehmen"].strip():
+                continue
+            osm_rows.append(row)
+    else:
+        warnings.append(
+            "Overpass war nicht erreichbar. Die Suche versucht zusätzlich den Photon-Index."
+        )
         try:
-            return _photon_search(city, mode, category, min(limit, 20), timeout)
-        except CompanySearchError as photon_error:
-            details = "; ".join(failures[-3:])
-            raise CompanySearchError(
-                "Overpass ist nicht erreichbar und der Photon-Fallback konnte ebenfalls "
-                "keine Ergebnisse liefern. "
-                + details + " | " + str(photon_error)
-            ) from None
+            photon_result = _photon_search(city, mode, category, min(requested_limit, 20), timeout)
+            photon_rows = photon_result.get("rows", [])
+        except (CompanySearchError, ValueError) as exc:
+            failures.append(str(exc))
 
-    elements = payload.get("elements")
-    rows: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for element in elements:
-        if not isinstance(element, dict):
-            continue
-        tags = element.get("tags") or {}
-        tagged_city = _best_tag(tags, "addr:city")
-        if tagged_city and not _same_city(tagged_city, city):
-            continue
-        row = _normalise_element(element, city, mode)
-        name = row["Unternehmen"].strip()
-        if not name:
-            continue
-        key = re.sub(r"[^a-z0-9]+", "", name.casefold())
-        address_key = re.sub(r"[^a-z0-9]+", "", row["Adresse"].casefold())
-        dedupe_key = f"{key}|{address_key}" if address_key else f"{key}|{row['Stadt'].casefold()}"
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        rows.append(row)
+    source_groups = []
+    if overture_rows:
+        source_groups.append(overture_rows)
+    if osm_rows:
+        source_groups.append(osm_rows)
+    if photon_rows:
+        source_groups.append(photon_rows)
+
+    if not source_groups and payload is None and not warnings:
+        warnings.extend(failures[-3:])
+    if not source_groups and payload is None and not overture_rows:
+        details = "; ".join((warnings + failures)[-5:])
+        raise CompanySearchError(
+            "Weder Overture Maps noch OpenStreetMap/Photon konnten Ergebnisse liefern. "
+            + details
+        )
+
+    merged_rows = _merge_company_rows(*source_groups) if source_groups else []
+    merged_rows = merged_rows[:requested_limit]
+
+    source_breakdown = {
+        "Overture Maps": len(overture_rows),
+        "OpenStreetMap / Overpass": len(osm_rows),
+        "OpenStreetMap / Photon": len(photon_rows),
+    }
+    used_sources = [
+        source for source, count in source_breakdown.items()
+        if count > 0
+    ]
+    if not used_sources:
+        # A successful empty response still identifies the providers that were queried.
+        used_sources = (
+            ["Overture Maps", "OpenStreetMap / Overpass"]
+            if payload is not None
+            else ["OpenStreetMap / Photon"]
+        )
 
     return {
         "city": city,
         "mode": mode,
         "category": category,
-        "count": len(rows),
-        "rows": rows,
-        "source": "OpenStreetMap / Overpass API",
-        "source_timestamp": (payload.get("osm3s") or {}).get("timestamp_osm_base", ""),
-        "query": query,
+        "count": len(merged_rows),
+        "rows": merged_rows,
+        "source": " + ".join(used_sources),
+        "source_breakdown": source_breakdown,
+        "source_warnings": warnings + failures[-3:],
+        "source_timestamp": (payload.get("osm3s") or {}).get("timestamp_osm_base", "")
+        if payload is not None else datetime.now(timezone.utc).isoformat(),
+        "query": osm_query,
+        "requested_limit": requested_limit,
     }
