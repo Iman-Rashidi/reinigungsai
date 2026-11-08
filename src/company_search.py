@@ -256,6 +256,100 @@ def _google_places_search(city: str, mode: str, category: str, limit: int, api_k
         "source_timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+def _photon_search(city: str, mode: str, category: str, limit: int, timeout: int) -> dict:
+    """Fallback search against Photon public OSM index, at low request volume."""
+    if mode == "Anbieter":
+        term_map = {
+            "Reinigungsunternehmen": "Gebäudereinigung Reinigungsservice",
+            "Sicherheitsdienste": "Sicherheitsdienst Bewachung Wachdienst",
+            "Facility Management": "Facility Management Hausmeisterservice",
+            "Bauunternehmen": "Bauunternehmen",
+        }
+    else:
+        term_map = {
+            "Alle passenden Standorte": "Unternehmen Büro Gewerbe",
+            "Büros und Unternehmen": "Büro Unternehmen",
+            "Handel und Einzelhandel": "Einzelhandel Geschäft",
+            "Hotels und Beherbergung": "Hotel",
+            "Gastronomie": "Restaurant Café",
+            "Gesundheit": "Krankenhaus Klinik Arztpraxis",
+            "Industrie und Gewerbe": "Industrieunternehmen Gewerbe",
+            "Reinigung": "Reinigungsunternehmen Gebäudereinigung",
+            "Sicherheit und Bewachung": "Sicherheitsdienst Bewachung Wachdienst",
+            "Service und Facility Management": "Facility Management Hausmeisterservice",
+            "Bauunternehmen und Baugewerbe": "Bauunternehmen Baugewerbe",
+        }
+    terms = term_map.get(category)
+    if not terms:
+        raise ValueError("Die ausgewählte Kategorie ist ungültig.")
+    search_term = f"{terms} {city} Nordrhein-Westfalen Deutschland"
+    params = urlencode({"q": search_term, "limit": min(max(int(limit), 5), 20), "lang": "de"})
+    request = Request(
+        f"https://photon.komoot.io/api/?{params}",
+        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=min(timeout, 12)) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise CompanySearchError(f"Photon meldet HTTP {exc.code}.") from None
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        reason = getattr(exc, "reason", None)
+        raise CompanySearchError(f"Photon ist nicht erreichbar: {reason or type(exc).__name__}.") from None
+
+    rows = []
+    seen = set()
+    for feature in payload.get("features", []):
+        if not isinstance(feature, dict):
+            continue
+        props = feature.get("properties") or {}
+        name = str(props.get("name") or "").strip()
+        if not name:
+            continue
+        osm_id = props.get("osm_id")
+        osm_type = str(props.get("osm_type") or "").lower()
+        osm_kind = {"n": "node", "w": "way", "r": "relation"}.get(osm_type, "node")
+        source_url = (
+            f"https://www.openstreetmap.org/{osm_kind}/{osm_id}"
+            if osm_id else "https://www.openstreetmap.org/"
+        )
+        key = re.sub(r"[^a-z0-9]+", "", name.casefold())
+        address_key = re.sub(
+            r"[^a-z0-9]+", "",
+            " ".join(str(props.get(k) or "") for k in ("postcode", "street", "housenumber")).casefold()
+        )
+        dedupe_key = f"{key}|{address_key}" if address_key else f"{key}|{city.casefold()}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        street = " ".join(str(props.get(k) or "").strip() for k in ("street", "housenumber")).strip()
+        postcode = str(props.get("postcode") or "")
+        rows.append({
+            "Unternehmen": name,
+            "Branche / Typ": " ".join(str(props.get(k) or "") for k in ("osm_key", "osm_value")).strip() or category,
+            "Stadt": str(props.get("city") or props.get("district") or city),
+            "Adresse": " ".join(part for part in (postcode, street) if part),
+            "PLZ": postcode,
+            "Telefon": "",
+            "E-Mail": "",
+            "Ansprechpartner": "",
+            "Funktion Ansprechpartner": "",
+            "Website": "",
+            "Quelle": "OpenStreetMap / Photon",
+            "Quellenlink": source_url,
+            "Prüfdatum": datetime.now(timezone.utc).date().isoformat(),
+            "Datenstatus": "Photon-Kartentreffer – Kontaktdaten nicht enthalten; bitte prüfen",
+        })
+    return {
+        "city": city, "mode": mode, "category": category,
+        "count": len(rows), "rows": rows,
+        "source": "OpenStreetMap / Photon (Fallback)",
+        "source_timestamp": datetime.now(timezone.utc).isoformat(),
+        "query": search_term,
+    }
+
+
 def search_companies(
     city: str,
     mode: str,
@@ -319,11 +413,17 @@ def search_companies(
             failures.append(f"{endpoint}: invalid JSON")
 
     if payload is None:
-        details = "; ".join(failures[-3:])
-        raise CompanySearchError(
-            "Alle öffentlichen Overpass-Server sind momentan nicht erreichbar "
-            "oder ausgelastet. " + details
-        )
+        # Photon is an independent OSM search index and can return named POIs
+        # when Overpass POST endpoints are unreachable from the hosting network.
+        try:
+            return _photon_search(city, mode, category, min(limit, 20), timeout)
+        except CompanySearchError as photon_error:
+            details = "; ".join(failures[-3:])
+            raise CompanySearchError(
+                "Overpass ist nicht erreichbar und der Photon-Fallback konnte ebenfalls "
+                "keine Ergebnisse liefern. "
+                + details + " | " + str(photon_error)
+            ) from None
 
     elements = payload.get("elements")
     rows: list[dict[str, str]] = []
