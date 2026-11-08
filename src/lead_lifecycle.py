@@ -18,7 +18,7 @@ DESCRIPTION_FIELDS = ("description", "content", "snippet", "Suchauszug", "text")
 LOCATION_FIELDS = ("city", "location", "Ort", "Stadt", "place")
 CATEGORY_FIELDS = ("category", "service", "type", "Kategorie", "Branche")
 URL_FIELDS = ("url", "source_url", "Quellenlink", "link")
-ID_FIELDS = ("external_id", "publication_number", "id", "record_id")
+ID_FIELDS = ("external_id", "publication_number", "notice_id", "auftrag_id")
 DATE_FIELDS = ("deadline", "expires_at", "expiration_date", "Ablaufdatum")
 STATUS_FIELDS = ("status", "Status", "state")
 
