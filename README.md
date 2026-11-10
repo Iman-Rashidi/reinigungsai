@@ -19,8 +19,4 @@ LinkedIn, Facebook, MyHammer, Indeed, StepStone and XING are available as manual
 
 ## Configuration
 
-See `.env.example`. The staging dashboard is accessed only through the central SteuerPilot Pro SSO integration; standalone trial-password access is disabled.
-
-Set `STEUERPILOT_RADAR_SSO_SECRET` in both the SteuerPilot Pro Staging and ReinigungsRadar Staging Render services. Use the exact same randomly generated value with at least 32 characters in both services. The application temporarily accepts the legacy misspelled key `STEUEERPILOT_RADAR_SSO_SECRET` for backwards compatibility, but new configuration should use the correctly spelled name. Never commit the secret or print it in logs.
-
-`APP_PASSWORD` is no longer used for staging authentication. `TAVILY_API_KEY` is optional and is only needed for the public-web search.
+See `.env.example`. The staging dashboard has no login screen, trial password or SSO gate. Anyone who can reach the staging URL can open the dashboard and view data exposed by its configured integrations. Do not connect confidential, personal or customer data to this public staging instance. `TAVILY_API_KEY` is optional and is only needed for public-web search.
