@@ -21,6 +21,13 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertNotIn("Der direkte Zugang ist deaktiviert", source)
         self.assertNotIn("Abmelden", source)
 
+    def test_public_passwordless_ui_has_no_trial_or_central_login_copy(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("Pilot", source)
+        self.assertNotIn("MVP", source)
+        self.assertNotIn("Der Zugriff erfolgt ausschließlich über die zentrale SteuerPilot-Anmeldung", source)
+        self.assertIn("Öffentlicher Zugriff ohne Anmeldung", source)
+
     def test_ted_dashboard_uses_the_nrw_active_notice_search(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("Ausschreibungen (TED)", source)
