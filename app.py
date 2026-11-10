@@ -9,8 +9,6 @@ from __future__ import annotations
 import os
 import re
 
-from src.steuerpilot_sso import get_sso_secret, verify_sso_token
-
 import streamlit as st
 
 from notion_reader import DEFAULT_DATA_SOURCE_ID, NotionAPIError, query_data_source
@@ -70,28 +68,6 @@ def cached_public_lead_search(city: str, category: str, extra_terms: str, limit:
     )
 
 
-# Staging SSO from SteuerPilot Pro. The short-lived token is signed server-side;
-# the shared secret is only stored in Render environment variables, never in the URL.
-SSO_SECRET = get_sso_secret()
-AUTH_KEY = "reinigungsradar_authenticated"
-
-if not st.session_state.get(AUTH_KEY, False):
-    sso_token = st.query_params.get("sso", "")
-    sso_claims = verify_sso_token(sso_token, SSO_SECRET) if sso_token and SSO_SECRET else None
-    if sso_claims:
-        st.session_state[AUTH_KEY] = True
-        st.session_state["reinigungsradar_auth_method"] = "steuerpilot_sso"
-        # Remove the short-lived credential from the visible iframe URL immediately.
-        st.query_params.pop("sso", None)
-
-if not st.session_state.get(AUTH_KEY, False):
-    st.title("📒 ReinigungsRadar NRW")
-    st.info(
-        "Der direkte Zugang ist deaktiviert. Bitte öffnen Sie ReinigungsRadar "
-        "über das zentrale SteuerPilot-Dashboard."
-    )
-    st.stop()
-
 st.title("📒 ReinigungsRadar NRW")
 st.caption(
     "Zwei getrennte Firmenverzeichnisse · NRW-Zielgebiet · vorhandener Pilotdatenbestand "
@@ -109,9 +85,6 @@ st.warning(
 )
 
 with st.sidebar:
-    if st.button("Abmelden"):
-        st.session_state[AUTH_KEY] = False
-        st.rerun()
     st.header("Filter")
     st.text_input("Bundesland", value="Nordrhein-Westfalen (NRW)", disabled=True)
     city_filter = st.text_input("Stadt enthält", placeholder="z. B. Viersen")
