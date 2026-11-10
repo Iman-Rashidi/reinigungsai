@@ -70,18 +70,17 @@ def cached_public_lead_search(city: str, category: str, extra_terms: str, limit:
 
 st.title("📒 ReinigungsRadar NRW")
 st.caption(
-    "Zwei getrennte Firmenverzeichnisse · NRW-Zielgebiet · vorhandener Pilotdatenbestand "
+    "Zwei getrennte Firmenverzeichnisse · NRW-Zielgebiet · vorhandener Datenbestand "
     "aktuell mit Schwerpunkt Mönchengladbach"
 )
 st.info(
-    "Interner MVP mit read-only Notion-Anbindung. Keine automatische Kontaktaufnahme "
+    "Read-only-Anbindung an Notion. Keine automatische Kontaktaufnahme "
     "und keine Änderung an Notion-Datensätzen."
 )
 st.warning(
-    "Der Zugriff erfolgt ausschließlich über die zentrale SteuerPilot-Anmeldung. "
-    "Vor echten personenbezogenen Daten müssen individuelle Benutzerrechte, "
-    "Mandantentrennung und Datenschutz geprüft sein. Öffentliche Kontaktdaten "
-    "sind keine Einwilligung für Werbeansprache."
+    "Öffentlicher Zugriff ohne Anmeldung. Keine vertraulichen Kunden-, Mitarbeiter- "
+    "oder Bankdaten in die Datenquellen aufnehmen. Öffentliche Kontaktdaten sind "
+    "keine Einwilligung für Werbeansprache."
 )
 
 with st.sidebar:
@@ -860,14 +859,14 @@ with setup_tab:
         "- Secret: `PROVIDER_DATA_SOURCE_ID`\n"
         "- Vorhandene Felder: Dienstleistung, Einsatzgebiet, Zertifikate / Erlaubnisse und Datenstatus.\n\n"
         "**Wichtiger Datenhinweis**\n"
-        "- Der vorhandene Kundenbestand ist ein Mönchengladbach-Pilot und noch keine vollständige NRW-Abdeckung.\n\n"
+        "- Der vorhandene Kundenbestand ist ein regionaler Datenbestand und noch keine vollständige NRW-Abdeckung.\n\n"
         "**Ausschreibungen**\n"
         "- Aktive TED-Bekanntmachungen mit Leistungsort NRW; weitere Vergabeportale sind noch nicht integriert."
     )
     st.info(
         "Die App liest beide Datenquellen unabhängig voneinander und nur lesend. "
         "Leere Platzhalter-Datensätze werden ausgeblendet. Der aktuelle Bestand "
-        "ist ein regionaler Pilot und noch keine vollständige NRW-Abdeckung. "
+        "ist ein regional begrenzter Datenbestand und noch keine vollständige NRW-Abdeckung. "
         "Quellen, Datenqualität und Prüfdatum bleiben sichtbar; fehlende Belege "
         "werden nicht als bestätigter Bedarf ausgegeben."
     )
